@@ -34,6 +34,7 @@ public class NoiseTracker : MonoBehaviour
     public float JumpscareThresholdPct => jumpscareThreshold / maxNoise;
     public bool  IsDecaying            => _isDecaying;
     public float IdleTimer             => _idleTimer;
+    public bool  IsDampenerOn          => dampenerState != null && dampenerState.IsOn;
 
     // Fase 3 — Inject SanitySystem, ganti SanitySystem.Instance di AddNoise.
     // Instance dipertahankan sebagai shim sampai semua caller dimigrasi.
@@ -67,16 +68,12 @@ public class NoiseTracker : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        // Saat scene ritme di-load, tandai sebagai rhythm scene
         if (scene.name == rhythmSceneName)
         {
             _isRhythmScene = true;
             return; // jangan restore noise di scene rhythm — tidak relevan
         }
-
-        // BUG FIX — Pastikan _isRhythmScene = false saat scene non-rhythm di-load.
-        // Kasus: game over terpicu dari dalam rhythm scene (LoadScene Single langsung)
-        // → OnSceneUnloaded mungkin tidak terpanggil → flag stuck true.
-        _isRhythmScene = false;
 
         // BUG FIX #3 — Restore noise dari save file saat scene game di-load.
         // Ini mencegah exploit di mana player Save/Load untuk reset noise ke 0.
@@ -85,12 +82,9 @@ public class NoiseTracker : MonoBehaviour
 
     private void OnSceneUnloaded(Scene scene)
     {
-        // Saat scene ritme di-unload, selalu reset flag.
-        // BUG FIX — tidak pakai GetActiveScene() karena saat LoadScene(Single) dari
-        // dalam Additive scene, active scene bisa sudah berganti sebelum event ini
-        // terpanggil → _isRhythmScene stuck true → noise tidak pernah decay lagi.
+        // Saat scene ritme di-unload, cek active scene sekarang
         if (scene.name == rhythmSceneName)
-            _isRhythmScene = false;
+            _isRhythmScene = SceneManager.GetActiveScene().name == rhythmSceneName;
     }
 
     private void Start()

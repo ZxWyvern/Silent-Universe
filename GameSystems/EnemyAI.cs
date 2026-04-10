@@ -253,6 +253,12 @@ public class EnemyAI : MonoBehaviour
         // Destroy prefab setelah fade out
         if (_spawnedPeekObject != null)
         {
+            // FIX — Destroy material instances yang di-buat oleh r.materials sebelum
+            // Destroy GameObject. Renderer.materials membuat instanced Material baru
+            // per renderer — Destroy(gameObject) tidak otomatis destroy Material instances
+            // tersebut. Tanpa ini setiap peek cycle membocorkan N Material ke GPU memory
+            // hingga scene unload.
+            DestroySpawnedMaterials();
             Destroy(_spawnedPeekObject);
             _spawnedPeekObject = null;
             _spawnedMaterials  = null;
@@ -371,12 +377,28 @@ public class EnemyAI : MonoBehaviour
         audioSource.PlayOneShot(clip);
     }
 
+    /// <summary>
+    /// Destroy semua Material instances yang dibuat oleh r.materials di PeekingRoutine.
+    /// Harus dipanggil SEBELUM Destroy(_spawnedPeekObject).
+    /// </summary>
+    private void DestroySpawnedMaterials()
+    {
+        if (_spawnedMaterials == null) return;
+        foreach (var mat in _spawnedMaterials)
+        {
+            if (mat != null) Destroy(mat);
+        }
+    }
+
     public void Disable()
     {
         StopAllCoroutines();
 
         if (_spawnedPeekObject != null)
         {
+            // FIX — Sama seperti LeavingRoutine: destroy material instances dulu
+            // sebelum Destroy GameObject agar tidak ada GPU memory leak.
+            DestroySpawnedMaterials();
             Destroy(_spawnedPeekObject);
             _spawnedPeekObject = null;
             _spawnedMaterials  = null;

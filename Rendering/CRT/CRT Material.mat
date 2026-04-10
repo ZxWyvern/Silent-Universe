@@ -28,6 +28,10 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _BlitTexture:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _BumpMap:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
@@ -106,7 +110,7 @@ Material:
     - _MaskIntensity: 0.043
     - _MaskScale: 2.09
     - _Metallic: 0
-    - _NoiseStrength: 0.001
+    - _NoiseStrength: 0.006
     - _OcclusionStrength: 1
     - _Parallax: 0.005
     - _QueueOffset: 0
@@ -120,7 +124,7 @@ Material:
     - _SrcBlendAlpha: 1
     - _Surface: 0
     - _VignetteRadius: 0.949
-    - _VignetteStrength: 0.323
+    - _VignetteStrength: 0.472
     - _WorkflowMode: 1
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1

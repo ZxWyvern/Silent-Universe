@@ -14,8 +14,10 @@ public class Tile : MonoBehaviour
     [SerializeField] private float scoreValue = 10f;
 
     [Header("Noise")]
-    [Tooltip("Noise yang ditambah ke NoiseTracker setiap note ditekan")]
+    [Tooltip("Noise yang ditambah ke NoiseTracker setiap note ditekan (saat dampener aktif)")]
     [SerializeField] private float noisePerHit = 5f;
+    [Tooltip("Noise yang ditambah saat dampener TIDAK aktif — lebih besar agar kondisi tanpa dampener lebih berbahaya")]
+    [SerializeField] private float noisePerHitNoDampener = 10f;
 
     // ── Runtime (set via Init) ────────────────────────────────────
     private GameManager    gm;
@@ -104,9 +106,15 @@ public class Tile : MonoBehaviour
         if (ScoreManager.Instance != null && !ScoreManager.Instance.IsPlaying) return;
         ScoreManager.Instance?.AddScore(scoreValue, false);
 
-        // Tambah noise setiap note ditekan
+        // Tambah noise setiap note ditekan.
+        // Jika dampener tidak aktif, pakai noisePerHitNoDampener yang lebih besar
+        // agar kondisi tanpa dampener benar-benar lebih berbahaya.
         if (NoiseTracker.Instance != null)
-            NoiseTracker.Instance.AddNoise(noisePerHit);
+        {
+            bool dampenerOn = NoiseTracker.Instance.IsDampenerOn;
+            float noise     = dampenerOn ? noisePerHit : noisePerHitNoDampener;
+            NoiseTracker.Instance.AddNoise(noise);
+        }
 
         // Notify sanity system — mulai hitung sanity dari note pertama
         SanitySystem.Instance?.NotifyFirstHit();

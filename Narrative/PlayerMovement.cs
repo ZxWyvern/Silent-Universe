@@ -229,7 +229,7 @@ public sealed class PlayerMovement : MonoBehaviour
         if (IsSprinting)               { State = LocomotionState.Sprint; return; }
         State = LocomotionState.Walk;
     }
-
+    
     private void TickMovement()
     {
         if (!IsMoving) return;
@@ -240,15 +240,18 @@ public sealed class PlayerMovement : MonoBehaviour
         _cc.Move(direction * (CurrentSpeed * Time.deltaTime));
     }
 
-    private void TickLook()
+private void TickLook()
     {
-        if (_inputLook == Vector2.zero) return;
+        // 1. Kalkulasi input mouse HANYA jika ada pergerakan
+        if (_inputLook != Vector2.zero)
+        {
+            transform.Rotate(Vector3.up, _inputLook.x * mouseSensitivity);
+            _cameraPitch -= _inputLook.y * mouseSensitivity;
+            _cameraPitch  = Mathf.Clamp(_cameraPitch, -maxPitchUp, maxPitchDown);
+        }
 
-        transform.Rotate(Vector3.up, _inputLook.x * mouseSensitivity);
-
-        _cameraPitch -= _inputLook.y * mouseSensitivity;
-        _cameraPitch  = Mathf.Clamp(_cameraPitch, -maxPitchUp, maxPitchDown);
-
+        // 2. WAJIB ditaruh di luar 'if' agar selalu tereksekusi setiap frame!
+        // Ini memberikan "pondasi" rotasi yang stabil untuk ditumpangi oleh HeadbobSystem.
         if (cameraTarget != null)
             cameraTarget.localRotation = Quaternion.Euler(_cameraPitch, 0f, 0f);
     }
