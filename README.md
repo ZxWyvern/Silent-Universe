@@ -79,7 +79,7 @@ Continuously refactored toward production-ready standards. New systems and optim
 ```
 
 ## License
-MIT License - See [LICENSE](LICENSE) file for details.
+GNU GPL v3 - See [LICENSE](LICENSE) file for details.
 
 ***
 
