@@ -1,5 +1,3 @@
-Here's the updated README with the Discord link added:
-
 ***
 
 # Modular Unity Game System Prototype
