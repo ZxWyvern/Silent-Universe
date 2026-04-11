@@ -21,8 +21,10 @@ public class NoiseTracker : MonoBehaviour
     [SerializeField] private float jumpscareThreshold = 80f;
 
     [Header("Rhythm Game")]
-    [Tooltip("Nama scene rhythm game — noise tidak decay di scene ini")]
+    [Tooltip("Nama scene rhythm game")]
     [SerializeField] private string rhythmSceneName   = "Restorasi";
+    [Tooltip("Seberapa cepat noise turun saat di scene Restorasi (unit/detik)")]
+    [SerializeField] private float  rhythmDecayRate   = 20f;
 
     [Header("Dampener")]
     [SerializeField] private DampenerState dampenerState;
@@ -34,6 +36,7 @@ public class NoiseTracker : MonoBehaviour
     public float JumpscareThresholdPct => jumpscareThreshold / maxNoise;
     public bool  IsDecaying            => _isDecaying;
     public float IdleTimer             => _idleTimer;
+    public bool  IsDampenerOn          => dampenerState != null && dampenerState.IsOn;
 
     // Fase 3 — Inject SanitySystem, ganti SanitySystem.Instance di AddNoise.
     // Instance dipertahankan sebagai shim sampai semua caller dimigrasi.
@@ -43,7 +46,8 @@ public class NoiseTracker : MonoBehaviour
     private float _currentNoise;
     private float _idleTimer;
     private bool  _isDecaying;
-    private bool  _isRhythmScene;   // cache — tidak cek SceneManager tiap frame
+    private bool  _isRhythmScene;
+    private bool  _firstTileHit;   // true setelah tile pertama ditekan di rhythm scene
 
     private void Awake()
     {
@@ -67,30 +71,22 @@ public class NoiseTracker : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        _firstTileHit = false;   // reset tiap scene load
+
         if (scene.name == rhythmSceneName)
         {
             _isRhythmScene = true;
-            return; // jangan restore noise di scene rhythm — tidak relevan
+            return;
         }
 
-        // BUG FIX — Pastikan _isRhythmScene = false saat scene non-rhythm di-load.
-        // Kasus: game over terpicu dari dalam rhythm scene (LoadScene Single langsung)
-        // → OnSceneUnloaded mungkin tidak terpanggil → flag stuck true.
-        _isRhythmScene = false;
-
-        // BUG FIX #3 — Restore noise dari save file saat scene game di-load.
-        // Ini mencegah exploit di mana player Save/Load untuk reset noise ke 0.
         RestoreNoiseFromSave();
     }
 
     private void OnSceneUnloaded(Scene scene)
     {
-        // Saat scene ritme di-unload, selalu reset flag.
-        // BUG FIX — tidak pakai GetActiveScene() karena saat LoadScene(Single) dari
-        // dalam Additive scene, active scene bisa sudah berganti sebelum event ini
-        // terpanggil → _isRhythmScene stuck true → noise tidak pernah decay lagi.
+        // Saat scene ritme di-unload, cek active scene sekarang
         if (scene.name == rhythmSceneName)
-            _isRhythmScene = false;
+            _isRhythmScene = SceneManager.GetActiveScene().name == rhythmSceneName;
     }
 
     private void Start()
@@ -118,8 +114,21 @@ public class NoiseTracker : MonoBehaviour
             dampenerState.TurnOff();
         }
 
-        // Pakai cache — tidak cek SceneManager tiap frame
-        if (_isRhythmScene) return;
+    // Di scene rhythm — noise turun cepat, tidak ada idle delay
+        if (_isRhythmScene)
+        {
+            // Jika tile pertama sudah ditekan DAN Fuse 2 aktif → noise berhenti turun
+            var sanity = _sanitySystem ?? SanitySystem.Instance;
+            bool fuse2Active = sanity != null && sanity.IsFuse2Active;
+            if (_firstTileHit && fuse2Active) return;
+
+            if (_currentNoise > 0f)
+            {
+                _currentNoise -= rhythmDecayRate * Time.deltaTime;
+                _currentNoise  = Mathf.Max(0f, _currentNoise);
+            }
+            return;
+        }
 
         if (_currentNoise <= 0f)
         {
@@ -184,6 +193,16 @@ public class NoiseTracker : MonoBehaviour
             _idleTimer    = 0f;
             _isDecaying   = false;
             Debug.Log($"[NoiseTracker] Noise di-restore dari save: {_currentNoise:F1}");
+        }
+    }
+
+    /// Dipanggil oleh Tile.OnHit() saat tile pertama ditekan di rhythm scene.
+    public void NotifyFirstTileHit()
+    {
+        if (!_firstTileHit)
+        {
+            _firstTileHit = true;
+            Debug.Log("[NoiseTracker] First tile hit — noise decay paused if Fuse 2 active.");
         }
     }
 

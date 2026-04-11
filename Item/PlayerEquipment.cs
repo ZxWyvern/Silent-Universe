@@ -2,18 +2,15 @@ using UnityEngine;
 using UnityEngine.Events;
 
 /// <summary>
-/// PlayerEquipment — Singleton, pasang pada Player.
-/// Menyimpan item yang sedang dipegang player.
+/// PlayerEquipment — komponen player, menyimpan item yang sedang dipegang.
 ///
-/// Save system mengikuti pola PlayerInventory:
-///   - PersistEquipment() → tulis ke SaveData → ForceWrite ke disk
-///   - LoadFromSave() di Start() → restore dari SaveData
-///   - GameSave.RegisterPersistCallback() → otomatis dipanggil saat checkpoint
-///
-/// Axe dan Flashlight masing-masing butuh allAxeAssets / allFlashlightAssets
-/// di-assign di Inspector agar bisa di-restore by name dari save.
+/// Fase 4 — Migrasi VContainer:
+///   - Hapus Instance singleton dan singleton Awake pattern
+///   - Hapus RegisterPersistCallback / UnregisterPersistCallback
+///   - Implement IPersistable
+///   - FlashlightController dan ItemDropper akan di-inject instance ini
 /// </summary>
-public class PlayerEquipment : MonoBehaviour
+public class PlayerEquipment : MonoBehaviour, IPersistable
 {
     public static PlayerEquipment Instance { get; private set; }
 
@@ -36,22 +33,16 @@ public class PlayerEquipment : MonoBehaviour
     private AxeItem        _equippedAxe;
     private FlashlightItem _equippedFlashlight;
 
-    public bool           HasAxe              => _equippedAxe != null;
-    public AxeItem        EquippedAxe         => _equippedAxe;
-    public bool           HasFlashlight       => _equippedFlashlight != null;
-    public FlashlightItem EquippedFlashlight  => _equippedFlashlight;
+    public bool           HasAxe             => _equippedAxe != null;
+    public AxeItem        EquippedAxe        => _equippedAxe;
+    public bool           HasFlashlight      => _equippedFlashlight != null;
+    public FlashlightItem EquippedFlashlight => _equippedFlashlight;
 
     private void Awake()
     {
-        if (Instance != null && Instance != this) { Destroy(this); return; }
+        // Fase 4: Singleton Awake dihapus. Instance sebagai shim sementara.
         Instance = this;
-
-        GameSave.RegisterPersistCallback(PersistEquipment);
-    }
-
-    private void OnDestroy()
-    {
-        GameSave.UnregisterPersistCallback(PersistEquipment);
+        // RegisterPersistCallback DIHAPUS — diganti IPersistable.
     }
 
     private void Start()
@@ -59,43 +50,8 @@ public class PlayerEquipment : MonoBehaviour
         LoadFromSave();
     }
 
-    // ── Axe ──────────────────────────────────────────────────────
-
-    public void EquipAxe(AxeItem axe)
-    {
-        _equippedAxe = axe;
-        onAxeEquipped.Invoke(axe);
-        PersistEquipment();
-        Debug.Log($"[Equipment] Equipped axe: {axe?.itemName}");
-    }
-
-    public void UnequipAxe()
-    {
-        _equippedAxe = null;
-        onAxeUnequipped.Invoke();
-        PersistEquipment();
-    }
-
-    // ── Flashlight ───────────────────────────────────────────────
-
-    public void EquipFlashlight(FlashlightItem flashlight)
-    {
-        _equippedFlashlight = flashlight;
-        onFlashlightEquipped.Invoke(flashlight);
-        PersistEquipment();
-        Debug.Log($"[Equipment] Equipped flashlight: {flashlight?.itemName}");
-    }
-
-    public void UnequipFlashlight()
-    {
-        _equippedFlashlight = null;
-        onFlashlightUnequipped.Invoke();
-        PersistEquipment();
-    }
-
-    // ── Persist / Load ───────────────────────────────────────────
-
-    public void PersistEquipment()
+    // IPersistable.Persist()
+    public void Persist()
     {
         var d = SaveFile.Data;
         d.equippedAxe        = _equippedAxe != null;
@@ -103,15 +59,48 @@ public class PlayerEquipment : MonoBehaviour
         SaveFile.ForceWrite();
     }
 
+    // ── Axe ──
+
+    public void EquipAxe(AxeItem axe)
+    {
+        _equippedAxe = axe;
+        onAxeEquipped.Invoke(axe);
+        Persist();
+        Debug.Log($"[Equipment] Equipped axe: {axe?.itemName}");
+    }
+
+    public void UnequipAxe()
+    {
+        _equippedAxe = null;
+        onAxeUnequipped.Invoke();
+        Persist();
+    }
+
+    // ── Flashlight ──
+
+    public void EquipFlashlight(FlashlightItem flashlight)
+    {
+        _equippedFlashlight = flashlight;
+        onFlashlightEquipped.Invoke(flashlight);
+        Persist();
+        Debug.Log($"[Equipment] Equipped flashlight: {flashlight?.itemName}");
+    }
+
+    public void UnequipFlashlight()
+    {
+        _equippedFlashlight = null;
+        onFlashlightUnequipped.Invoke();
+        Persist();
+    }
+
+    // ── Load ──
+
     private void LoadFromSave()
     {
         var d = SaveFile.Data;
 
-        // Restore axe
         if (d.equippedAxe && _equippedAxe == null)
         {
-            // Cari asset pertama yang tersedia (axe tidak punya itemName di save,
-            // cukup tahu player equipped axe — ambil asset pertama)
             var axeAsset = allAxeAssets.Count > 0 ? allAxeAssets[0] : null;
             if (axeAsset != null)
             {
@@ -125,7 +114,6 @@ public class PlayerEquipment : MonoBehaviour
             }
         }
 
-        // Restore flashlight
         if (!string.IsNullOrEmpty(d.equippedFlashlight) && _equippedFlashlight == null)
         {
             var asset = allFlashlightAssets.Find(f => f != null && f.itemName == d.equippedFlashlight);

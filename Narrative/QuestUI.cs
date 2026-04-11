@@ -1,18 +1,17 @@
 using UnityEngine;
 using TMPro;
 using System.Collections;
+using VContainer;
 
 /// <summary>
 /// QuestUI — tampilkan objective quest di HUD.
 ///
-/// Perubahan dari versi lama:
-///   - Hapus singleton _instance — QuestUI tidak perlu DontDestroyOnLoad,
-///     cukup hidup di scene yang membutuhkannya
-///   - Subscribe ke events di OnEnable/OnDisable bukan Start/OnDestroy
-///     agar subscribe selalu fresh dan tidak ada stale listener
-///   - RestoreState() pull langsung dari QuestManager.CurrentObjective()
-///     tanpa bergantung pada timing event — tidak ada race condition
-///   - Tidak lagi DontDestroyOnLoad — UI dibuat ulang tiap scene
+/// FIX: Tambah [Inject] QuestManager agar tidak bergantung pada QuestManager.Instance
+/// yang belum tersedia saat OnEnable() dipanggil (race condition VContainer).
+///
+/// Urutan Unity lifecycle dengan VContainer:
+///   Awake() → VContainer inject → Start() → OnEnable (jika aktif sejak awal)
+/// Karena OnEnable() dipanggil SEBELUM inject selesai, subscribe dipindah ke Start().
 /// </summary>
 public class QuestUI : MonoBehaviour
 {
@@ -28,7 +27,11 @@ public class QuestUI : MonoBehaviour
     [SerializeField] private float fadeSpeed         = 4f;
     [SerializeField] private float holdAfterComplete = 1.2f;
 
+    // FIX: Inject QuestManager — tidak bergantung pada .Instance yang belum ada saat OnEnable
+    [Inject] private QuestManager _questManager;
+
     private Coroutine _routine;
+    private bool      _subscribed;
 
     private void Awake()
     {
@@ -37,28 +40,59 @@ public class QuestUI : MonoBehaviour
         SetAlpha(0f);
     }
 
-    // FIX: Subscribe di OnEnable/OnDisable bukan Start/OnDestroy
-    // Ini memastikan listener selalu fresh dan tidak leak saat GameObject di-disable/enable
+    // FIX: Subscribe di Start() bukan OnEnable()
+    // OnEnable() dipanggil sebelum VContainer selesai inject — _questManager masih null.
+    // Start() dijamin dipanggil setelah semua [Inject] fields sudah terisi.
+    private void Start()
+    {
+        Subscribe();
+        RestoreState();
+    }
+
     private void OnEnable()
     {
-        var qm = QuestManager.Instance;
-        if (qm == null) return;
-        qm.onStepStarted.AddListener(OnStepStarted);
-        qm.onStepCompleted.AddListener(OnStepCompleted);
-        qm.onAllQuestsCompleted.AddListener(OnAllQuestsCompleted);
-
-        // FIX: Pull state langsung dari QuestManager saat UI aktif
-        // Tidak bergantung pada timing event — tidak ada race condition
-        RestoreState();
+        // Hanya re-subscribe jika Start() sudah pernah jalan (re-enable setelah disable)
+        if (_subscribed)
+        {
+            Subscribe();
+            RestoreState();
+        }
     }
 
     private void OnDisable()
     {
-        var qm = QuestManager.Instance;
+        Unsubscribe();
+    }
+
+    private void OnDestroy()
+    {
+        Unsubscribe();
+    }
+
+    // ── Subscribe / Unsubscribe ──
+
+    private void Subscribe()
+    {
+        // Fallback ke Instance untuk editor testing tanpa container
+        var qm = _questManager ?? QuestManager.Instance;
+        if (qm == null || _subscribed) return;
+
+        qm.onStepStarted.AddListener(OnStepStarted);
+        qm.onStepCompleted.AddListener(OnStepCompleted);
+        qm.onAllQuestsCompleted.AddListener(OnAllQuestsCompleted);
+        _subscribed = true;
+    }
+
+    private void Unsubscribe()
+    {
+        if (!_subscribed) return;
+        var qm = _questManager ?? QuestManager.Instance;
         if (qm == null) return;
+
         qm.onStepStarted.RemoveListener(OnStepStarted);
         qm.onStepCompleted.RemoveListener(OnStepCompleted);
         qm.onAllQuestsCompleted.RemoveListener(OnAllQuestsCompleted);
+        _subscribed = false;
     }
 
     // ── Event Handlers ──
@@ -81,10 +115,9 @@ public class QuestUI : MonoBehaviour
 
     private void RestoreState()
     {
-        var qm = QuestManager.Instance;
+        var qm = _questManager ?? QuestManager.Instance;
         if (qm == null || !qm.IsQuestActive) return;
 
-        // Pull langsung tanpa coroutine — tidak ada timing issue
         string objective = qm.CurrentObjective();
         if (string.IsNullOrEmpty(objective)) return;
 

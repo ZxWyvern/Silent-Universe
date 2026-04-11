@@ -8,8 +8,8 @@
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
 // ── Textures ──────────────────────────────────────────────────────────────────
-TEXTURE2D(_MainTex);
-SAMPLER(sampler_MainTex);
+TEXTURE2D(_BlitTexture);
+SAMPLER(sampler_BlitTexture);
 
 // ── Properties ────────────────────────────────────────────────────────────────
 CBUFFER_START(UnityPerMaterial)
@@ -78,9 +78,9 @@ float4 CRTFrag(float2 uv)
 
     // ── 3. Chromatic aberration ───────────────────────────────────────────────
     float2 offset = (jitteredUV - 0.5) * _ChromaShift;
-    float r = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, jitteredUV + offset).r;
-    float g = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, jitteredUV        ).g;
-    float b = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, jitteredUV - offset).b;
+    float r = SAMPLE_TEXTURE2D(_BlitTexture, sampler_BlitTexture, jitteredUV + offset).r;
+    float g = SAMPLE_TEXTURE2D(_BlitTexture, sampler_BlitTexture, jitteredUV        ).g;
+    float b = SAMPLE_TEXTURE2D(_BlitTexture, sampler_BlitTexture, jitteredUV - offset).b;
     float4 color = float4(r, g, b, 1.0);
 
     // ── 4. Scanlines ──────────────────────────────────────────────────────────

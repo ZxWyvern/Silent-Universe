@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b31f2497705de21419712f89e62093a5, type: 3}
   m_Name: SpeedEventChannel
   m_EditorClassIdentifier: Assembly-CSharp::SpeedEventChannel
-  debugTestMultiplier: 1.5
+  debugTestMultiplier: 100

@@ -3,122 +3,94 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering.RenderGraphModule;
 
-/// <summary>
-/// CRTRendererFeature — Unity 6 URP, RenderGraph API.
-/// Tambahkan ke Universal Renderer Data -> Add Renderer Feature.
-///
-/// Setup:
-///   1. Buat Material baru dengan shader "Hidden/CRTEffect"
-///   2. Assign material di field "CRT Material" di Inspector
-/// </summary>
 public class CRTRendererFeature : ScriptableRendererFeature
 {
-    [System.Serializable]
-    public class Settings
+    class CRTPass : ScriptableRenderPass
     {
-        public Material crtMaterial;
-        public RenderPassEvent passEvent = RenderPassEvent.AfterRenderingPostProcessing;
+        public Material material;
+
+        // Wadah penampung data untuk dikirim ke dalam eksekusi Render Graph
+        private class PassData
+        {
+            public TextureHandle source;
+            public Material material;
+        }
+
+        // FUNGSI BARU UNITY 6: Menggantikan OnCameraSetup dan Execute
+        public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+        {
+            if (material == null) return;
+            material.SetFloat("_Time_Custom", Time.time);
+
+            // Ambil data rendering frame saat ini
+            UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
+            UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+
+            // Jangan jalankan efek ini di layar preview material editor
+            if (cameraData.cameraType == CameraType.Preview || cameraData.cameraType == CameraType.Reflection)
+                return;
+
+            // Ambil output gambar dari kamera (berlaku untuk Full Screen maupun Render Texture)
+            TextureHandle source = resourceData.activeColorTexture;
+            if (!source.IsValid()) return;
+
+            // Buat kanvas/tekstur sementara
+            RenderTextureDescriptor desc = cameraData.cameraTargetDescriptor;
+            desc.depthBufferBits = 0; // Kita hanya memanipulasi warna, tidak butuh depth
+
+            TextureHandle tempTexture = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_TempCRTTexture", false);
+
+            // LANGKAH 1: Salin gambar kamera ke TempTexture sambil menyuntikkan Material CRT
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>("CRT Blit Pass", out var passData))
+            {
+                passData.source = source;
+                passData.material = material;
+
+                builder.UseTexture(source, AccessFlags.Read);
+                builder.SetRenderAttachment(tempTexture, 0);
+
+                builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
+                {
+                    Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), data.material, 0);
+                });
+            }
+
+            // LANGKAH 2: Salin kembali hasil gambar dari TempTexture ke output kamera asli
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>("CRT Copy Back Pass", out var passData))
+            {
+                passData.source = tempTexture;
+
+                builder.UseTexture(tempTexture, AccessFlags.Read);
+                builder.SetRenderAttachment(source, 0);
+
+                builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
+                {
+                    // Copy murni tanpa material
+                    Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0.0f, false);
+                });
+            }
+        }
     }
 
-    public Settings settings = new Settings();
-    private CRTPass _pass;
+    [Header("Settings")]
+    public Material crtMaterial;
+    
+    // Pastikan ini tetap BeforeRenderingPostProcessing agar aman di Render Texture
+    public RenderPassEvent passEvent = RenderPassEvent.BeforeRenderingPostProcessing; 
+
+    private CRTPass customPass;
 
     public override void Create()
     {
-        _pass = new CRTPass(settings);
-        _pass.renderPassEvent = settings.passEvent;
+        customPass = new CRTPass
+        {
+            material = crtMaterial,
+            renderPassEvent = passEvent
+        };
     }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
-        if (settings.crtMaterial == null)
-        {
-            Debug.LogWarning("[CRTRendererFeature] CRT Material belum diassign!");
-            return;
-        }
-        if (renderingData.cameraData.cameraType == CameraType.SceneView) return;
-
-        renderer.EnqueuePass(_pass);
+        renderer.EnqueuePass(customPass);
     }
-
-    protected override void Dispose(bool disposing)
-    {
-        _pass?.Dispose();
-    }
-}
-
-class CRTPassData
-{
-    public TextureHandle src;
-    public Material      material;
-}
-
-class CRTPass : ScriptableRenderPass, System.IDisposable
-{
-    private readonly CRTRendererFeature.Settings _settings;
-    private static readonly int TimePropID = Shader.PropertyToID("_Time_Custom");
-
-    public CRTPass(CRTRendererFeature.Settings settings)
-    {
-        _settings        = settings;
-        profilingSampler = new ProfilingSampler("CRT Effect");
-        requiresIntermediateTexture = true;
-    }
-
-    public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
-    {
-        var resourceData = frameData.Get<UniversalResourceData>();
-        var cameraData   = frameData.Get<UniversalCameraData>();
-
-        if (resourceData.isActiveTargetBackBuffer) return;
-
-        _settings.crtMaterial.SetFloat(TimePropID, Time.time);
-
-        var desc = cameraData.cameraTargetDescriptor;
-        desc.depthBufferBits = 0;
-        desc.msaaSamples     = 1;
-
-        TextureHandle src  = resourceData.activeColorTexture;
-        TextureHandle dest = UniversalRenderer.CreateRenderGraphTexture(
-            renderGraph, desc, "_CRTTemp", false);
-
-        // Pass 1: blit camera color + CRT effect ke temp texture
-        using (var builder = renderGraph.AddRasterRenderPass<CRTPassData>(
-            "CRT Blit To Temp", out var passData, profilingSampler))
-        {
-            passData.src      = src;
-            passData.material = _settings.crtMaterial;
-
-            builder.UseTexture(src);
-            builder.SetRenderAttachment(dest, 0);
-            builder.AllowPassCulling(false);
-
-            builder.SetRenderFunc(static (CRTPassData data, RasterGraphContext ctx) =>
-            {
-                Blitter.BlitTexture(ctx.cmd, data.src,
-                    new Vector4(1, 1, 0, 0), data.material, 0);
-            });
-        }
-
-        // Pass 2: copy temp texture kembali ke camera color
-        // activeColorTexture read-only — buat pass manual dengan Blitter
-        using (var builder = renderGraph.AddRasterRenderPass<CRTPassData>(
-            "CRT Copy Back", out var copyData, profilingSampler))
-        {
-            copyData.src      = dest;
-            copyData.material = null;
-
-            builder.UseTexture(dest);
-            builder.SetRenderAttachment(src, 0);
-            builder.AllowPassCulling(false);
-
-            builder.SetRenderFunc(static (CRTPassData data, RasterGraphContext ctx) =>
-            {
-                Blitter.BlitTexture(ctx.cmd, data.src,
-                    new Vector4(1, 1, 0, 0), 0, false);
-            });
-        }
-    }
-
-    public void Dispose() { }
 }

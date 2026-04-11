@@ -56,6 +56,7 @@ public class SanitySystem : MonoBehaviour
     // ── Public Properties ──
     public float SanityPercent        => _currentSanity / maxSanity;
     public bool  IsCCTVActive         => _isCCTVActive;
+    public bool  IsFuse2Active        => _isFuse2Active;
     public float NoiseMultiplier      => Mathf.Lerp(noiseMultiplierMax, noiseMultiplierMin, SanityPercent);
     public float PeekChanceMultiplier => Mathf.Lerp(peekChanceMultiplierMax, 1f, SanityPercent);
 

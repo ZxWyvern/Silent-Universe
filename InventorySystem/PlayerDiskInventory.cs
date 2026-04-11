@@ -8,8 +8,13 @@ using UnityEngine.Events;
 ///
 /// BUG FIX #2: Tambahkan PersistDisks() agar inventory bisa flush ke SaveFile
 /// sebelum WorldFlags.Set() dipanggil oleh DiskBox, mencegah race condition duplikasi disk.
+///
+/// Fase 4 — Migrasi VContainer:
+///   - Implement IPersistable agar bisa di-register ke GameSaveService
+///   - Hapus singleton Awake pattern (Instance sebagai shim sementara)
+///   - Hapus RegisterPersistCallback / UnregisterPersistCallback
 /// </summary>
-public class PlayerDiskInventory : MonoBehaviour
+public class PlayerDiskInventory : MonoBehaviour, IPersistable
 {
     public static PlayerDiskInventory Instance { get; private set; }
 
@@ -29,31 +34,29 @@ public class PlayerDiskInventory : MonoBehaviour
 
     private void Awake()
     {
+        // Fase 4: Singleton Awake dihapus. Instance sebagai shim sementara.
         if (Instance != null && Instance != this) { Destroy(this); return; }
         Instance = this;
 
-        // BUG FIX ASMDEF — Daftarkan PersistDisks sebagai callback sinkronisasi.
-        // GameSave.Save() akan invoke ini sebelum ForceWrite() tanpa perlu referensikan
-        // tipe PlayerDiskInventory langsung (menghindari circular dependency Core ↔ InventorySystem).
-        GameSave.RegisterPersistCallback(PersistDisks);
-
-        // Isi DiskRegistry dari allDiskAssets yang sudah di-assign di Inspector.
-        // Dengan ini DiskRegistryInitializer tidak diperlukan sebagai komponen terpisah —
-        // PlayerDiskInventory yang sudah pasti ada di Player melakukan register-nya.
+        // RegisterPersistCallback DIHAPUS — diganti IPersistable.
+        // DiskRegistry tetap diisi di sini karena PlayerDiskInventory selalu ada di Player.
         DiskRegistry.Register(allDiskAssets);
     }
 
     private void OnDestroy()
     {
-        GameSave.UnregisterPersistCallback(PersistDisks);
+        // UnregisterPersistCallback DIHAPUS — tidak ada lagi callback untuk di-unregister.
     }
 
-    // BUG FIX #3 (Race Condition Inisialisasi) — Load di Awake bukan Start
-    // agar data sudah siap sebelum script lain yang mungkin cek inventory di Start-nya.
-    // Catatan: Awake order antar script tetap tidak dijamin, tapi ini lebih aman dari Start.
     private void Start()
     {
         LoadFromSave();
+    }
+
+    // IPersistable.Persist() — dipanggil GameSaveService sebelum ForceWrite()
+    public void Persist()
+    {
+        PersistDisks();
     }
 
     public void AddDisk(DiskItem disk)
@@ -62,8 +65,6 @@ public class PlayerDiskInventory : MonoBehaviour
         _disks.Add(disk);
         onDiskAdded.Invoke(disk.itemName);
         Debug.Log($"[DiskInventory] Disk ditambahkan: {disk.itemName}");
-        // Persist dan write langsung agar disk tidak hilang saat load ulang
-        // apapun caller-nya (DiskPickup, DiskBox eject, DiskRepairHandler, dll.)
         PersistDisks();
         SaveFile.ForceWrite();
     }
@@ -80,7 +81,7 @@ public class PlayerDiskInventory : MonoBehaviour
     public DiskItem GetLatest() => _disks.Count > 0 ? _disks[_disks.Count - 1] : null;
     public DiskItem[] GetAll()  => _disks.ToArray();
 
-    // BUG FIX #2 — Flush daftar disk saat ini ke SaveFile.Data
+    // BUG FIX #2 — Flush daftar disk saat ini ke SaveFile.Data.
     // Dipanggil oleh DiskBox.OnInteract() SEBELUM WorldFlags.Set() agar save konsisten.
     public void PersistDisks()
     {
@@ -88,12 +89,9 @@ public class PlayerDiskInventory : MonoBehaviour
         foreach (var disk in _disks)
             if (disk != null) names.Add(disk.itemName);
         SaveFile.Data.diskInventory = string.Join("|", names);
-        // Sengaja TIDAK memanggil SaveFile.Write() di sini —
-        // biarkan WorldFlags.Set() di caller yang melakukan Write() satu kali.
         Debug.Log($"[DiskInventory] PersistDisks: {SaveFile.Data.diskInventory}");
     }
 
-    // Restore disk inventory dari save saat scene di-load
     private void LoadFromSave()
     {
         string raw = SaveFile.Data.diskInventory ?? "";
