@@ -33,7 +33,7 @@ public class FusePickup : MonoBehaviour, IInteractable
     private bool   _pickedUp;
     private string _saveKey;
 
-    private IFuseReceiver TargetFuseBox  => targetFuseBoxObj as IFuseReceiver;
+    private IFuseReceiver TargetFuseBox   => targetFuseBoxObj as IFuseReceiver;
     private bool          FuseIsInstalled => TargetFuseBox != null && TargetFuseBox.FuseInstalled;
 
     public string PromptText  => FuseIsInstalled ? promptInstalled : promptText;
@@ -73,6 +73,15 @@ public class FusePickup : MonoBehaviour, IInteractable
         else if (hideOnPickup) gameObject.SetActive(false);
     }
 
+    /// Dipakai ItemDropper saat spawn prefab drop di dunia.
+    /// TIDAK hapus WorldFlags — pickup asli di scene tetap hidden.
+    public void PrepareAsDropped()
+    {
+        _pickedUp = false;
+        gameObject.SetActive(true);
+    }
+
+    /// Reset penuh — hapus WorldFlags, hanya untuk dev/cheat/editor reset.
     public void ResetPickup()
     {
         _pickedUp = false;

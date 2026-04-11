@@ -70,6 +70,15 @@ public class DiskPickup : MonoBehaviour, IInteractable
         else if (hideOnPickup) gameObject.SetActive(false);
     }
 
+    /// Dipakai ItemDropper saat spawn prefab drop di dunia.
+    /// TIDAK hapus WorldFlags — pickup asli di scene tetap hidden.
+    public void PrepareAsDropped()
+    {
+        _pickedUp = false;
+        gameObject.SetActive(true);
+    }
+
+    /// Reset penuh — hapus WorldFlags, hanya untuk dev/cheat/editor reset.
     public void ResetPickup()
     {
         _pickedUp = false;

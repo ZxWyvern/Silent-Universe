@@ -1,12 +1,18 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
+using VContainer;
 
 /// <summary>
-/// PlayerBatteryInventory — Singleton, pasang pada Player.
-/// Menyimpan stack baterai yang dimiliki player.
+/// PlayerBatteryInventory — komponen player, menyimpan stack baterai.
+///
+/// Fase 4 — Migrasi VContainer:
+///   - Hapus Instance singleton dan singleton Awake pattern
+///   - Hapus RegisterPersistCallback / UnregisterPersistCallback
+///   - Implement IPersistable
+///   - FlashlightController akan di-inject instance ini (tidak lagi .Instance)
 /// </summary>
-public class PlayerBatteryInventory : MonoBehaviour
+public class PlayerBatteryInventory : MonoBehaviour, IPersistable
 {
     public static PlayerBatteryInventory Instance { get; private set; }
 
@@ -19,8 +25,8 @@ public class PlayerBatteryInventory : MonoBehaviour
     [SerializeField] private List<BatteryItem> allBatteryAssets = new();
 
     [Header("Events")]
-    public UnityEvent<int>    onBatteryCountChanged;  // (count) saat jumlah berubah
-    public UnityEvent<string> onBatteryAdded;         // (itemName)
+    public UnityEvent<int>    onBatteryCountChanged;
+    public UnityEvent<string> onBatteryAdded;
     public UnityEvent         onBatteryUsed;
     public UnityEvent         onInventoryFull;
     public UnityEvent         onInventoryEmpty;
@@ -33,14 +39,9 @@ public class PlayerBatteryInventory : MonoBehaviour
 
     private void Awake()
     {
-        if (Instance != null && Instance != this) { Destroy(this); return; }
+        // Fase 4: Singleton Awake dihapus. Instance sebagai shim sementara.
         Instance = this;
-        GameSave.RegisterPersistCallback(PersistBatteries);
-    }
-
-    private void OnDestroy()
-    {
-        GameSave.UnregisterPersistCallback(PersistBatteries);
+        // RegisterPersistCallback DIHAPUS — diganti IPersistable.
     }
 
     private void Start()
@@ -48,17 +49,29 @@ public class PlayerBatteryInventory : MonoBehaviour
         LoadFromSave();
     }
 
+    // IPersistable.Persist()
+    public void Persist()
+    {
+        var names = new List<string>();
+        foreach (var b in _batteries)
+            if (b != null) names.Add(b.itemName);
+        SaveFile.Data.batteryInventory = string.Join("|", names);
+        // Tidak ForceWrite di sini — GameSaveService yang ForceWrite.
+    }
+
+    // ── Public API ──
+
     public void AddBattery(BatteryItem item)
     {
         if (IsFull) { onInventoryFull.Invoke(); return; }
         _batteries.Add(item);
         onBatteryAdded.Invoke(item != null ? item.itemName : "Baterai");
         onBatteryCountChanged.Invoke(_batteries.Count);
-        PersistBatteries();
+        Persist();
         SaveFile.ForceWrite();
     }
 
-    /// Pakai 1 baterai — kembalikan rechargeAmount, -1 jika kosong
+    /// Pakai 1 baterai — kembalikan rechargeAmount, -1 jika kosong.
     public float UseBattery()
     {
         if (IsEmpty) return -1f;
@@ -70,19 +83,13 @@ public class PlayerBatteryInventory : MonoBehaviour
 
         if (IsEmpty) onInventoryEmpty.Invoke();
 
-        PersistBatteries();
+        Persist();
         SaveFile.ForceWrite();
 
         return item != null ? item.rechargeAmount : 60f;
     }
 
-    public void PersistBatteries()
-    {
-        var names = new List<string>();
-        foreach (var b in _batteries)
-            if (b != null) names.Add(b.itemName);
-        SaveFile.Data.batteryInventory = string.Join("|", names);
-    }
+    // ── Load ──
 
     private void LoadFromSave()
     {

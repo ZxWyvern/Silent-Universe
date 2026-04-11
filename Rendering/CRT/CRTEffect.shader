@@ -2,7 +2,7 @@ Shader "Hidden/CRTEffect"
 {
     Properties
     {
-        _MainTex            ("Source",              2D)      = "white" {}
+        _BlitTexture        ("Source",              2D)      = "white" {}
 
         [Header(Scanlines)]
         _ScanlineIntensity  ("Intensity",       Range(0,1))  = 0.4
@@ -44,14 +44,23 @@ Shader "Hidden/CRTEffect"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "CRTEffect.hlsl"
 
-            struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
-            struct Varyings   { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
+            struct Attributes
+            {
+                uint vertexID : SV_VertexID;
+            };
+
+            struct Varyings
+            {
+                float4 positionCS : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
 
             Varyings Vert(Attributes IN)
             {
                 Varyings OUT;
-                OUT.positionCS = TransformObjectToHClip(IN.positionOS.xyz);
-                OUT.uv         = IN.uv;
+                // Unity 6 Blitter menggunakan vertexID, bukan posisi 3D (positionOS)
+                OUT.positionCS = GetFullScreenTriangleVertexPosition(IN.vertexID);
+                OUT.uv         = GetFullScreenTriangleTexCoord(IN.vertexID);
                 return OUT;
             }
 

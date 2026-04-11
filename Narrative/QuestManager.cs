@@ -4,20 +4,20 @@ using UnityEngine.Events;
 using VContainer;
 
 /// <summary>
-/// QuestManager — versi refactor.
+/// QuestManager — sistem quest global, cross-scene.
 ///
-/// Perubahan dari versi lama:
-///   - SaveProgress() pakai ForceWrite() bukan Write() — tidak ada throttle,
-///     progress tidak hilang jika game crash setelah step selesai
-///   - LoadProgress() validasi lebih ketat: cek questId, stepId, dan step count
-///   - FireStepStarted() dipanggil SETELAH SaveProgress() — state di disk selalu
-///     konsisten dengan state yang di-broadcast ke UI
-///   - FinishActiveQuest() bersihkan state dulu, baru invoke event, baru chain quest —
-///     tidak ada window di mana state inconsistent saat listener jalan
-///   - Tambah IQuestManagerReadOnly untuk UI agar tidak bisa mutate state dari luar
+/// Fase 3 Step 3 — Migrasi VContainer:
+///   - Hapus singleton Awake pattern (if Instance != null ... DontDestroyOnLoad)
+///   - DontDestroyOnLoad diurus ProjectLifetimeScope via RegisterComponentInNewPrefab
+///   - Instance dipertahankan sebagai compatibility shim — hapus setelah semua
+///     caller (MainMenuHandler, GameOverManager, CCTVSaveData) sudah di-inject
+///   - QuestTrigger dan QuestUI sudah pakai [Inject] — tidak butuh Instance lagi
 /// </summary>
 public class QuestManager : MonoBehaviour
 {
+    // Compatibility shim — hapus setelah MainMenuHandler, GameOverManager,
+    // dan CCTVSaveData.DEV_ResetAll() sudah di-inject QuestManager.
+    // Fase 3: Set di Awake() — VContainer menjamin hanya satu instance via RegisterComponentInNewPrefab.
     public static QuestManager Instance { get; private set; }
 
     [Header("Quest Pertama")]
@@ -38,15 +38,13 @@ public class QuestManager : MonoBehaviour
     [Tooltip("saat semua quest selesai")]
     public UnityEvent                 onAllQuestsCompleted;
 
-    // ── State ──
-    private QuestData            _activeQuest;
-    private int                  _currentStepIndex;
+    // State
+    private QuestData                _activeQuest;
+    private int                      _currentStepIndex;
     private readonly HashSet<string> _completedIds = new();
+    private bool                     _isProcessing;
 
-    // ── guard agar tidak double-complete dalam 1 frame ──
-    private bool _isProcessing;
-
-    // ── Public readonly ──
+    // Public readonly
     public bool      IsQuestActive    => _activeQuest != null;
     public string    ActiveQuestId    => _activeQuest?.questId ?? "";
     public string    ActiveQuestTitle => _activeQuest?.questTitle ?? "";
@@ -61,17 +59,16 @@ public class QuestManager : MonoBehaviour
         return _currentStepIndex < steps.Count ? steps[_currentStepIndex].objective : "";
     }
 
-    // ──────────────────────────────────────────
     // Lifecycle
-    // ──────────────────────────────────────────
 
     private void Awake()
     {
-        // Fase 3 — Instance sebagai compatibility shim selama migrasi VContainer.
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        // Fase 3: Singleton Awake dihapus. DontDestroyOnLoad diurus oleh
+        // ProjectLifetimeScope.RegisterComponentInNewPrefab(..., Lifetime.Singleton).
+        // Tidak ada lagi "if Instance != null Destroy(gameObject)" —
+        // VContainer menjamin hanya satu instance yang dibuat.
+        // Instance di-set sebagai shim untuk MainMenuHandler dan GameOverManager.
         Instance = this;
-        if (transform.parent != null) transform.SetParent(null);
-        DontDestroyOnLoad(gameObject);
     }
 
     private void Start()
@@ -82,9 +79,7 @@ public class QuestManager : MonoBehaviour
             StartQuest(startingQuest);
     }
 
-    // ──────────────────────────────────────────
     // Public API
-    // ──────────────────────────────────────────
 
     public bool StartQuest(QuestData quest)
     {
@@ -112,7 +107,6 @@ public class QuestManager : MonoBehaviour
         _activeQuest      = quest;
         _currentStepIndex = 0;
 
-        // FIX: Save SEBELUM fire event — state di disk konsisten sebelum UI update
         SaveProgress();
         FireStepStarted();
 
@@ -124,8 +118,6 @@ public class QuestManager : MonoBehaviour
     {
         if (!IsQuestActive) return;
 
-        // FIX: Guard mencegah double-complete dalam 1 frame
-        // (misal: dua QuestTrigger overlap trigger di frame yang sama)
         if (_isProcessing)
         {
             Debug.LogWarning("[Quest] CompleteStep dipanggil saat sedang processing — diabaikan.");
@@ -143,21 +135,14 @@ public class QuestManager : MonoBehaviour
         }
 
         _isProcessing = true;
-
-        // Invoke onStepCompleted SEBELUM naikkan index
-        // agar listener masih bisa baca step yang baru selesai
         onStepCompleted.Invoke(step.objective);
         Debug.Log($"[Quest] Step selesai: \"{step.objective}\"");
-
         _currentStepIndex++;
 
         if (_currentStepIndex >= steps.Count)
-        {
             FinishActiveQuest();
-        }
         else
         {
-            // FIX: Save SEBELUM fire event
             SaveProgress();
             FireStepStarted();
             Debug.Log($"[Quest] Step berikutnya: {CurrentObjective()}");
@@ -181,18 +166,13 @@ public class QuestManager : MonoBehaviour
         Debug.Log("[Quest] Semua progress direset.");
     }
 
-    // ──────────────────────────────────────────
     // Internal
-    // ──────────────────────────────────────────
 
     private void FinishActiveQuest()
     {
         string    finishedId = _activeQuest.questId;
         QuestData next       = _activeQuest.nextQuest;
 
-        // FIX: Bersihkan state dan save DULU sebelum invoke event dan chain
-        // Tanpa ini, jika listener dari onQuestCompleted panggil IsQuestActive
-        // atau IsCompleted, hasilnya akan salah
         _completedIds.Add(finishedId);
         _activeQuest      = null;
         _currentStepIndex = 0;
@@ -213,14 +193,9 @@ public class QuestManager : MonoBehaviour
         }
     }
 
-    private void FireStepStarted()
-    {
-        onStepStarted.Invoke(ActiveQuestTitle, CurrentObjective());
-    }
+    private void FireStepStarted() => onStepStarted.Invoke(ActiveQuestTitle, CurrentObjective());
 
-    // ──────────────────────────────────────────
     // Save / Load
-    // ──────────────────────────────────────────
 
     private void SaveProgress()
     {
@@ -228,9 +203,6 @@ public class QuestManager : MonoBehaviour
         d.questActiveId   = _activeQuest?.questId ?? "";
         d.questActiveStep = _currentStepIndex;
         d.questCompleted  = string.Join("|", _completedIds);
-
-        // FIX: ForceWrite() bukan Write() — tidak ada throttle
-        // Progress tidak hilang jika game crash tepat setelah step selesai
         SaveFile.ForceWrite();
     }
 
@@ -238,13 +210,11 @@ public class QuestManager : MonoBehaviour
     {
         var d = SaveFile.Data;
 
-        // Load completed quest IDs
         string rawCompleted = d.questCompleted ?? "";
         if (!string.IsNullOrEmpty(rawCompleted))
             foreach (var id in rawCompleted.Split('|'))
                 if (!string.IsNullOrEmpty(id)) _completedIds.Add(id);
 
-        // Load quest aktif
         string activeId = d.questActiveId ?? "";
         if (string.IsNullOrEmpty(activeId)) return;
 
@@ -256,7 +226,6 @@ public class QuestManager : MonoBehaviour
             return;
         }
 
-        // FIX: Validasi step index sebelum restore
         int savedStep = d.questActiveStep;
         if (quest.steps == null || quest.steps.Count == 0)
         {
@@ -273,12 +242,6 @@ public class QuestManager : MonoBehaviour
 
         _activeQuest      = quest;
         _currentStepIndex = savedStep;
-
-        // FIX: FireStepStarted dipanggil di sini agar UI bisa subscribe lebih dulu
-        // QuestUI.Start() subscribe, lalu RestoreNextFrame() yang fire event
-        // Tapi karena LoadProgress() dipanggil di Start() juga, ada timing issue.
-        // Solusi: tidak fire event di sini — biarkan QuestUI.RestoreNextFrame()
-        // yang pull state langsung dari QuestManager.CurrentObjective()
         Debug.Log($"[Quest] Progress dimuat: '{activeId}' step {_currentStepIndex}");
     }
 
@@ -290,9 +253,7 @@ public class QuestManager : MonoBehaviour
         SaveFile.ForceWrite();
     }
 
-    // ──────────────────────────────────────────
     // Dev Tools
-    // ──────────────────────────────────────────
 
     [ContextMenu("DEV: Reset Semua Progress")]
     public void DEV_ResetAll() => ResetAllProgress();

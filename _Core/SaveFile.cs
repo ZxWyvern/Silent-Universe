@@ -21,7 +21,7 @@ public static class SaveFile
     private const  float WriteIntervalSeconds = 0.1f;
 
     // Save versioning — naikkan saat ada breaking change di SaveData
-    private const int CurrentSaveVersion = 1;
+    private const int CurrentSaveVersion = 2;
 
     public static SaveData Data
     {
@@ -78,8 +78,20 @@ public static class SaveFile
 
     private static void MigrateSave(SaveData d)
     {
-        // Tambah migration logic di sini saat saveVersion dinaikkan.
-        // Contoh: if (d.saveVersion < 2) { d.newField = defaultValue; }
+        // v1 → v2: dampenerTurnOnTime (float, Time.time) → dampenerTurnOnUnix (long, Unix epoch)
+        // Time.time dari sesi lama tidak bisa dikonversi ke Unix yang akurat, jadi jika
+        // dampener masih aktif saat migrasi, paksa TurnOff agar tidak stuck selamanya.
+        if (d.saveVersion < 2)
+        {
+            if (d.dampenerOn && d.dampenerTurnOnUnix == 0L)
+            {
+                Debug.LogWarning("[SaveFile] Migrasi v1→v2: dampener aktif dari save lama — reset state (tidak bisa konversi Time.time ke Unix).");
+                d.dampenerOn             = false;
+                d.dampenerTurnOnUnix     = 0L;
+                d.dampenerPendingPenalty = 0f;
+            }
+        }
+
         Debug.Log($"[SaveFile] Migrasi save dari v{d.saveVersion} ke v{CurrentSaveVersion}.");
         d.saveVersion = CurrentSaveVersion;
         ForceWrite();
@@ -183,7 +195,12 @@ public class SaveData
     public bool   cctvDiskIn    = false;
 
     public bool  dampenerOn             = false;
+    // FIX — Ganti float dampenerTurnOnTime (Time.time) dengan long Unix timestamp.
+    // Time.time reset ke 0 setiap launch; Unix timestamp persisten lintas sesi.
+    // Field lama dampenerTurnOnTime dipertahankan untuk migrasi save v1→v2.
+    [System.Obsolete("Gunakan dampenerTurnOnUnix (long). Field ini hanya untuk migrasi save lama.")]
     public float dampenerTurnOnTime     = 0f;
+    public long  dampenerTurnOnUnix     = 0L;
     public float dampenerPendingPenalty = 0f;
 
     public string questActiveId   = "";
@@ -225,10 +242,21 @@ public class SaveData
 /// </summary>
 public static class WorldFlags
 {
+    // FIX — Cache hasil Parse() agar tidak alokasi Dictionary baru setiap Get/Set/Has.
+    // Sebelumnya setiap operasi memanggil Parse() yang Split + alokasi Dictionary baru.
+    // DiskRepairHandler.Update() memanggil WorldFlags.Get() setiap frame → ratusan
+    // alokasi per detik → GC pressure signifikan.
+    //
+    // Invalidasi cache hanya terjadi saat raw string berubah (Set/Remove).
+    private static Dictionary<string, bool> _boolCache;
+    private static string                   _boolCacheRaw;
+
+    private static Dictionary<string, string> _stringCache;
+    private static string                     _stringCacheRaw;
     public static bool Get(string key)
     {
-        var flags = Parse();
-        return flags.TryGetValue(key, out bool val) && val;
+        // FIX — Gunakan GetBoolFlags() (cached) bukan Parse() (alokasi baru tiap panggil)
+        return GetBoolFlags().TryGetValue(key, out bool val) && val;
     }
 
     public static void Set(string key, bool value)
@@ -242,14 +270,10 @@ public static class WorldFlags
             return;
 #endif
         }
-        var flags = Parse();
+        var flags = GetBoolFlags();
         flags[key] = value;
         SaveFile.Data.worldFlags = Serialize(flags);
-        // BUG FIX — Ganti Write() dengan ForceWrite().
-        // Write() punya throttle 0.1 detik — jika dipanggil terlalu cepat setelah
-        // write terakhir, data tidak ditulis ke disk. Akibatnya WorldFlags.Get()
-        // mengembalikan false saat load ulang → item pickup hilang dari save.
-        // ForceWrite() menjamin data selalu ke disk segera.
+        InvalidateBoolCache(); // raw string berubah — invalidasi cache
         SaveFile.ForceWrite();
     }
 
@@ -275,21 +299,23 @@ public static class WorldFlags
             return;
 #endif
         }
-        var flags = Parse();
+        var flags = GetBoolFlags();
         flags[key] = value;
         SaveFile.Data.worldFlags = Serialize(flags);
+        InvalidateBoolCache();
         // Sengaja TIDAK memanggil ForceWrite() — caller yang bertanggung jawab.
     }
 
     public static void Remove(string key)
     {
-        var flags = Parse();
+        var flags = GetBoolFlags();
         flags.Remove(key);
         SaveFile.Data.worldFlags = Serialize(flags);
+        InvalidateBoolCache();
         SaveFile.ForceWrite();
     }
 
-    public static bool Has(string key) => Parse().ContainsKey(key);
+    public static bool Has(string key) => GetBoolFlags().ContainsKey(key);
 
     // ── String flags ─────────────────────────────────────────────
     // Digunakan oleh DiskBox untuk menyimpan nama disk yang diinsert.
@@ -297,8 +323,8 @@ public static class WorldFlags
 
     public static string GetString(string key)
     {
-        var flags = ParseString();
-        return flags.TryGetValue(key, out string val) ? val : "";
+        // FIX — Gunakan GetStringFlags() (cached)
+        return GetStringFlags().TryGetValue(key, out string val) ? val : "";
     }
 
     public static void SetString(string key, string value)
@@ -314,26 +340,52 @@ public static class WorldFlags
         }
         // Nilai juga tidak boleh mengandung separator
         string safeValue = value.Replace("|", "_").Replace("=", "_");
-        var flags = ParseString();
+        var flags = GetStringFlags();
         flags[key] = safeValue;
         SaveFile.Data.worldFlagsString = SerializeString(flags);
+        InvalidateStringCache();
         // Sengaja tidak Write() di sini — caller (Set) yang akan trigger Write()
     }
 
     public static void RemoveString(string key)
     {
-        var flags = ParseString();
+        var flags = GetStringFlags();
         flags.Remove(key);
         SaveFile.Data.worldFlagsString = SerializeString(flags);
+        InvalidateStringCache();
         SaveFile.ForceWrite();
     }
 
     // ── Private ──────────────────────────────────────────────────
 
-    private static Dictionary<string, bool> Parse()
+    private static Dictionary<string, bool> GetBoolFlags()
+    {
+        string raw = SaveFile.Data.worldFlags ?? "";
+        if (_boolCache != null && _boolCacheRaw == raw) return _boolCache;
+
+        // Cache miss — parse ulang dan simpan
+        _boolCacheRaw = raw;
+        _boolCache    = Parse(raw);
+        return _boolCache;
+    }
+
+    private static void InvalidateBoolCache() => _boolCache = null;
+
+    private static Dictionary<string, string> GetStringFlags()
+    {
+        string raw = SaveFile.Data.worldFlagsString ?? "";
+        if (_stringCache != null && _stringCacheRaw == raw) return _stringCache;
+
+        _stringCacheRaw = raw;
+        _stringCache    = ParseString(raw);
+        return _stringCache;
+    }
+
+    private static void InvalidateStringCache() => _stringCache = null;
+
+    private static Dictionary<string, bool> Parse(string raw)
     {
         var result = new Dictionary<string, bool>();
-        string raw = SaveFile.Data.worldFlags ?? "";
         if (string.IsNullOrEmpty(raw)) return result;
         foreach (var entry in raw.Split('|'))
         {
@@ -353,10 +405,10 @@ public static class WorldFlags
         return string.Join("|", parts);
     }
 
-    private static Dictionary<string, string> ParseString()
+    // Parameterized — dipanggil hanya oleh GetStringFlags() saat cache miss
+    private static Dictionary<string, string> ParseString(string raw)
     {
         var result = new Dictionary<string, string>();
-        string raw = SaveFile.Data.worldFlagsString ?? "";
         if (string.IsNullOrEmpty(raw)) return result;
         foreach (var entry in raw.Split('|'))
         {

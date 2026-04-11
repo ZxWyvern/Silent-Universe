@@ -45,16 +45,20 @@ public class DampenerController : MonoBehaviour
         UpdateUI();
     }
 
-    private void Update()
+private void Update()
     {
         if (dampenerState == null || !dampenerState.IsOn) return;
 
         if (statusText != null && dampenerState.activeDuration > 0f)
         {
-            float turnOnTime = SaveFile.Data.dampenerTurnOnTime;
-            // BUG FIX B — Konsisten dengan DampenerState: gunakan Time.time, bukan realtimeSinceStartup.
-            float remaining  = dampenerState.activeDuration - (Time.time - turnOnTime);
-            remaining        = Mathf.Max(0f, remaining);
+            // Ambil waktu aktif berdasarkan Unix Timestamp (sesuai update di DampenerState)
+            long turnOnUnix = SaveFile.Data.dampenerTurnOnUnix;
+            long nowUnix    = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            
+            // Hitung sisa waktu
+            float remaining = dampenerState.activeDuration - (nowUnix - turnOnUnix);
+            remaining       = Mathf.Max(0f, remaining);
+            
             statusText.text  = "DAMPENER: ON (" + Mathf.CeilToInt(remaining) + "s)";
             statusText.color = new Color(0.2f, 0.9f, 0.3f);
             if (remaining <= 0f) UpdateUI();

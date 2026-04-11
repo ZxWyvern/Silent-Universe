@@ -26,33 +26,20 @@ public class KeyPickup : MonoBehaviour, IInteractable
     public UnityEvent         onAlreadyOwned;
 
     private bool   _pickedUp;
-    private string _saveKey; // di-cache dari SceneItemID saat Awake
+    private string _saveKey;
 
-    public string PromptText
-    {
-        get
-        {
-            if (_pickedUp) return promptAlreadyHas;
-            var inv = PlayerInventory.Instance;
-            if (inv != null && keyItem != null && inv.HasKey(keyItem)) return promptAlreadyHas;
-            return promptText;
-        }
-    }
+    public string PromptText  => PlayerInventory.Instance != null &&
+                                 keyItem != null &&
+                                 PlayerInventory.Instance.HasKey(keyItem)
+                                 ? promptAlreadyHas : promptText;
 
-    public bool CanInteract
-    {
-        get
-        {
-            if (_pickedUp) return false;
-            var inv = PlayerInventory.Instance;
-            if (inv != null && keyItem != null && inv.HasKey(keyItem)) return false;
-            return true;
-        }
-    }
+    public bool   CanInteract => !_pickedUp &&
+                                 (PlayerInventory.Instance == null ||
+                                  keyItem == null ||
+                                  !PlayerInventory.Instance.HasKey(keyItem));
 
     private void Awake()
     {
-        // Cache save key dari SceneItemID — stabil meski GameObject di-rename
         _saveKey = "KP_" + SceneItemID.Of(gameObject);
 
         if (WorldFlags.Get(_saveKey))
@@ -64,18 +51,12 @@ public class KeyPickup : MonoBehaviour, IInteractable
 
     public void OnInteract(GameObject interactor)
     {
-        if (_pickedUp) return;
+        if (!CanInteract) return;
 
         var inventory = PlayerInventory.Instance;
         if (inventory == null)
         {
             Debug.LogWarning("[KeyPickup] PlayerInventory tidak ditemukan!");
-            return;
-        }
-
-        if (keyItem != null && inventory.HasKey(keyItem))
-        {
-            onAlreadyOwned.Invoke();
             return;
         }
 
@@ -91,6 +72,15 @@ public class KeyPickup : MonoBehaviour, IInteractable
             gameObject.SetActive(false);
     }
 
+    /// Dipakai ItemDropper saat spawn prefab drop di dunia.
+    /// TIDAK hapus WorldFlags — pickup asli di scene tetap hidden.
+    public void PrepareAsDropped()
+    {
+        _pickedUp = false;
+        gameObject.SetActive(true);
+    }
+
+    /// Reset penuh — hapus WorldFlags, hanya untuk dev/cheat/editor reset.
     public void ResetPickup()
     {
         _pickedUp = false;

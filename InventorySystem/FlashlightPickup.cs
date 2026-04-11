@@ -22,24 +22,23 @@ public class FlashlightPickup : MonoBehaviour, IInteractable
     private bool                                 _hasSavedState;
     private FlashlightController.FlashlightState _savedState;
     private bool                                 _pickedUp;
-
-    private string SaveKey => $"FlashlightPickup_Picked_{gameObject.name}";
-
-    private void Awake()
-    {
-        // Hide pickup jika sudah diambil.
-        // Equip ke PlayerEquipment dihandle oleh PlayerEquipment.LoadFromSave().
-        if (WorldFlags.Get(SaveKey))
-        {
-            _pickedUp = true;
-            gameObject.SetActive(false);
-        }
-    }
+    private string                               _saveKey;
 
     public string PromptText  => PlayerEquipment.Instance != null && PlayerEquipment.Instance.HasFlashlight
                                  ? promptAlreadyHas : promptText;
     public bool   CanInteract => !_pickedUp &&
                                  (PlayerEquipment.Instance == null || !PlayerEquipment.Instance.HasFlashlight);
+
+    private void Awake()
+    {
+        _saveKey = "FLP_" + SceneItemID.Of(gameObject);
+
+        if (WorldFlags.Get(_saveKey))
+        {
+            _pickedUp = true;
+            gameObject.SetActive(false);
+        }
+    }
 
     public void OnInteract(GameObject interactor)
     {
@@ -49,8 +48,8 @@ public class FlashlightPickup : MonoBehaviour, IInteractable
         if (equip == null) return;
 
         _pickedUp = true;
-        equip.EquipFlashlight(flashlightItem); // EquipFlashlight → PersistEquipment → ForceWrite
-        WorldFlags.Set(SaveKey, true);          // Hide pickup object di scene
+        equip.EquipFlashlight(flashlightItem);
+        WorldFlags.Set(_saveKey, true);
 
         var fc = FlashlightController.Instance;
         if (fc != null)
@@ -68,16 +67,13 @@ public class FlashlightPickup : MonoBehaviour, IInteractable
         else if (hideOnPickup) gameObject.SetActive(false);
     }
 
-    /// Dipanggil ItemDropper saat drop.
+    /// Dipanggil ItemDropper saat drop — simpan state baterai.
+    /// TIDAK hapus WorldFlags — pickup asli di scene tetap hidden.
     public void SaveState(FlashlightController.FlashlightState state)
     {
         _savedState    = state;
         _hasSavedState = true;
         _savedBattery  = state.batteryRemaining;
-
-        WorldFlags.Remove(SaveKey);
-        _pickedUp = false;
-        gameObject.SetActive(true);
     }
 
     public void SaveBattery(float remaining)
@@ -86,12 +82,23 @@ public class FlashlightPickup : MonoBehaviour, IInteractable
         _hasSavedState = false;
     }
 
+    /// Dipakai ItemDropper saat spawn prefab drop di dunia.
+    /// TIDAK hapus WorldFlags — pickup asli di scene tetap hidden.
+    public void PrepareAsDropped()
+    {
+        _pickedUp      = false;
+        _hasSavedState = false;
+        _savedBattery  = -1f;
+        gameObject.SetActive(true);
+    }
+
+    /// Reset penuh — hapus WorldFlags, hanya untuk dev/cheat/editor reset.
     public void ResetPickup()
     {
         _pickedUp      = false;
         _hasSavedState = false;
         _savedBattery  = -1f;
-        WorldFlags.Remove(SaveKey);
+        WorldFlags.Remove(_saveKey);
         gameObject.SetActive(true);
     }
 

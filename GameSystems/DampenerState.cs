@@ -19,12 +19,19 @@ public class DampenerState : ScriptableObject
     {
         if (!IsOn) return false;
         if (activeDuration <= 0f) return false;
-        // BUG FIX B — Gunakan Time.time (game time) bukan realtimeSinceStartup.
-        // realtimeSinceStartup reset ke 0 setiap kali game di-launch ulang, sehingga
-        // (realtimeSinceStartup - dampenerTurnOnTime) bisa negatif atau sangat besar
-        // tergantung kapan save ditulis vs kapan game dijalankan lagi.
-        // Time.time konsisten dalam satu sesi dan tidak terpengaruh scene reload.
-        return Time.time - SaveFile.Data.dampenerTurnOnTime >= activeDuration;
+
+        // FIX — Sebelumnya menyimpan Time.time (detik sejak game start).
+        // Time.time reset ke 0 setiap kali game di-launch ulang, sehingga jika
+        // player quit saat dampener aktif lalu launch ulang, perbandingan
+        // (Time.time - dampenerTurnOnTime) bisa negatif atau < activeDuration
+        // selamanya → dampener tidak pernah expired setelah load.
+        //
+        // Fix: simpan dan bandingkan Unix timestamp (detik sejak epoch) via
+        // DateTimeOffset.UtcNow.ToUnixTimeSeconds(). Nilai ini konsisten lintas
+        // sesi, scene reload, dan OS sleep/wake.
+        long now     = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long turnOn  = SaveFile.Data.dampenerTurnOnUnix;
+        return (now - turnOn) >= (long)activeDuration;
     }
 
     public void TurnOn()
@@ -32,8 +39,8 @@ public class DampenerState : ScriptableObject
         if (IsOn) return;
         var d = SaveFile.Data;
         d.dampenerOn             = true;
-        // BUG FIX B — Simpan Time.time, bukan realtimeSinceStartup.
-        d.dampenerTurnOnTime     = Time.time;
+        // FIX — Simpan Unix timestamp, bukan Time.time.
+        d.dampenerTurnOnUnix     = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         d.dampenerPendingPenalty = noisePenalty;
         SaveFile.Write();
         Debug.Log($"[Dampener] ON — penalty {noisePenalty} pending, durasi {activeDuration}s");
@@ -43,7 +50,7 @@ public class DampenerState : ScriptableObject
     {
         var d = SaveFile.Data;
         d.dampenerOn             = false;
-        d.dampenerTurnOnTime     = 0f;
+        d.dampenerTurnOnUnix     = 0L;
         d.dampenerPendingPenalty = 0f;
         SaveFile.Write();
         Debug.Log("[Dampener] OFF");
@@ -59,7 +66,7 @@ public class DampenerState : ScriptableObject
     {
         var d = SaveFile.Data;
         d.dampenerOn             = false;
-        d.dampenerTurnOnTime     = 0f;
+        d.dampenerTurnOnUnix     = 0L;
         d.dampenerPendingPenalty = 0f;
         SaveFile.Write();
     }

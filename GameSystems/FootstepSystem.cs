@@ -85,7 +85,8 @@ public class FootstepSystem : MonoBehaviour
 
         if (speed < minSpeed)
         {
-            _distanceTravelled = 0f;
+            // HAPUS baris _distanceTravelled = 0f; di sini!
+            // Kita biarkan saja nilainya "pause" di tempat terakhir.
             return;
         }
 
@@ -173,6 +174,10 @@ public class FootstepSystem : MonoBehaviour
         float db = Mathf.Log10(Mathf.Max(_currentReverbFactor, 0.0001f)) * 20f;
         audioMixer.SetFloat(reverbParam, db);
     }
-
+    
     public void SetEnabled(bool enabled) => this.enabled = enabled;
+    // ── Public Getters untuk Sinkronisasi Headbob ────────────────────
+    public float DistanceTravelled => _distanceTravelled;
+    public bool  IsLeftFoot        => _isLeftFoot;
+    public float CurrentInterval   => GetCurrentInterval();
 }
