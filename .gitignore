@@ -17,6 +17,7 @@
 *.booproj
 *.svntmp
 *.meta
+*.sh
 
 .DS_Store
 Thumbs.db
