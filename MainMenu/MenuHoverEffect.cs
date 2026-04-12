@@ -14,7 +14,7 @@ public class MenuHoverEffect : MonoBehaviour, IPointerEnterHandler, IPointerExit
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        text.text = ">" + originalText;
+        text.text = ">> " + originalText;
     }
 
     public void OnPointerExit(PointerEventData eventData)

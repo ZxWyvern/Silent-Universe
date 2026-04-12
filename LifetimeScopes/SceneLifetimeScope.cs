@@ -33,8 +33,7 @@ public class SceneLifetimeScope : LifetimeScope
     [Tooltip("Drag QuestUI component dari scene — biasanya ada di Canvas")]
     [SerializeField] private QuestUI questUI;
 
-    [Tooltip("Drag SEMUA QuestTrigger yang ada di scene ini")]
-    [SerializeField] private QuestTrigger[] questTriggers;
+
 
     [Header("Fase 4 — Player Components")]
     [Tooltip("Drag PlayerInventory dari Player GameObject")]
@@ -75,11 +74,8 @@ public class SceneLifetimeScope : LifetimeScope
         else
             Debug.LogWarning("[SceneLifetimeScope] questUI belum di-assign di Inspector!");
 
-        // ── Fase 3 — QuestTrigger[] ─────────────────────────────────────────────
-        if (questTriggers != null)
-            foreach (var qt in questTriggers)
-                if (qt != null) builder.RegisterComponent(qt);
-                else Debug.LogWarning("[SceneLifetimeScope] Salah satu entry questTriggers null — skip.");
+        // QuestTrigger tidak di-register ke VContainer — tidak punya [Inject],
+        // pakai QuestManager.Instance sebagai fallback langsung.
 
         // ── Fase 4 — Player Components ──────────────────────────────────────────
         // Register sebagai tipe konkrit — untuk inject antar player components.

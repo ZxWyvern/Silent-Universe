@@ -57,6 +57,24 @@ public class FlashlightController : MonoBehaviour
     [Tooltip("Berapa detik senter rusak akibat spam")]
     [SerializeField] private float spamBrokenDuration = 30f;
 
+    [Header("Noise")]
+    [Tooltip("Noise per detik selama flashlight dinyalakan (hold)")]
+    [SerializeField] private float noiseWhileOn        = 3f;
+    [Tooltip("Noise saat flashlight dinyalakan")]
+    [SerializeField] private float noiseOnTurnOn       = 2f;
+    [Tooltip("Noise saat flashlight dimatikan")]
+    [SerializeField] private float noiseOnTurnOff      = 1f;
+    [Tooltip("Noise saat baterai habis")]
+    [SerializeField] private float noiseOnDepleted     = 5f;
+    [Tooltip("Noise saat overheat mulai")]
+    [SerializeField] private float noiseOnOverheat     = 8f;
+    [Tooltip("Noise saat overheat selesai (cooldown selesai)")]
+    [SerializeField] private float noiseOnOverheatEnd  = 2f;
+    [Tooltip("Noise saat recharge selesai")]
+    [SerializeField] private float noiseOnRecharge     = 3f;
+    [Tooltip("Noise saat flashlight rusak karena spam")]
+    [SerializeField] private float noiseOnBroken       = 10f;
+
     [Header("Events")]
     public UnityEvent          onFlashlightOn;
     public UnityEvent          onFlashlightOff;
@@ -204,6 +222,7 @@ public class FlashlightController : MonoBehaviour
         {
             _holdTime += Time.deltaTime;
             onOverheatProgress.Invoke(OverheatPercent);
+            NoiseReporter.Add(noiseWhileOn * Time.deltaTime);
 
             float timeLeft = overheatThreshold - _holdTime;
             if (timeLeft <= overheatWarningAt && _flickerRoutine == null)
@@ -308,6 +327,7 @@ public class FlashlightController : MonoBehaviour
         flashlightLight.enabled   = true;
         flashlightLight.intensity = _baseIntensity;
         onFlashlightOn.Invoke();
+        NoiseReporter.Add(noiseOnTurnOn);
 
         if (_activeBatteryDuration > 0)
         {
@@ -327,6 +347,7 @@ public class FlashlightController : MonoBehaviour
         if (_flickerRoutine != null) { StopCoroutine(_flickerRoutine); _flickerRoutine = null; }
 
         onFlashlightOff.Invoke();
+        NoiseReporter.Add(noiseOnTurnOff);
     }
 
     public void RechargeBattery(float amount)
@@ -356,8 +377,7 @@ public class FlashlightController : MonoBehaviour
         TurnOff();
         onOverheatProgress.Invoke(1f);
         onOverheatStart.Invoke();
-
-        if (_cooldownRoutine != null) StopCoroutine(_cooldownRoutine);
+        NoiseReporter.Add(noiseOnOverheat);
         _cooldownRoutine = StartCoroutine(CooldownRoutine());
     }
 
@@ -369,6 +389,7 @@ public class FlashlightController : MonoBehaviour
         _isOverheated = false;
         onOverheatProgress.Invoke(0f);
         onOverheatEnd.Invoke();
+        NoiseReporter.Add(noiseOnOverheatEnd);
     }
 
     private IEnumerator OverheatWarningFlicker()
@@ -421,6 +442,7 @@ public class FlashlightController : MonoBehaviour
         _isRecharging = false;
         onRechargeProgress.Invoke(0f);
         onRechargeComplete.Invoke();
+        NoiseReporter.Add(noiseOnRecharge);
     }
 
     // ──────────────────────────────────────────
@@ -443,6 +465,7 @@ public class FlashlightController : MonoBehaviour
             {
                 TurnOff(); _fHeld = false;
                 onBatteryDepleted.Invoke();
+                NoiseReporter.Add(noiseOnDepleted);
                 yield break;
             }
             yield return null;
@@ -555,6 +578,7 @@ public class FlashlightController : MonoBehaviour
         _fHeld    = false; _holdTime = 0f;
         TurnOff();
         onBrokenStart.Invoke(spamBrokenDuration);
+        NoiseReporter.Add(noiseOnBroken);
 
         if (_brokenRoutine != null) StopCoroutine(_brokenRoutine);
         _brokenRoutine = StartCoroutine(BrokenRoutine());

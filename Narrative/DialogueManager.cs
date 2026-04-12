@@ -13,11 +13,14 @@ public class DialogueManager : MonoBehaviour
     // ── Singleton ──
     public static DialogueManager Instance { get; private set; }
 
-    // ── Events — DilogueUI subscribe ke sini ──
+    // ── Events ──
     public UnityEvent<string, string>   onDialogueStart;    // (npcName, npcText)
     public UnityEvent<string, string>   onNodeShow;         // (npcName, npcText)
     public UnityEvent<DialogueChoice[]> onChoicesShow;      // array pilihan
     public UnityEvent                   onDialogueEnd;
+    /// Fire saat player pilih choice — SEBELUM pindah node.
+    /// (index, nextNodeID) — dipakai NPCInteractable untuk detect accept/reject.
+    public UnityEvent<int, string>      onChoiceSelected;
 
     // ── State ──
     private DialogueData                _data;
@@ -81,6 +84,9 @@ public class DialogueManager : MonoBehaviour
         if (index < 0 || index >= _currentNode.choices.Length) return;
 
         string nextID = _currentNode.choices[index].nextNodeID;
+
+        // Fire event SEBELUM pindah node — NPCInteractable baca nextNodeID di sini.
+        onChoiceSelected.Invoke(index, nextID ?? string.Empty);
 
         if (string.IsNullOrEmpty(nextID) || !_nodeMap.ContainsKey(nextID))
             EndDialogue();

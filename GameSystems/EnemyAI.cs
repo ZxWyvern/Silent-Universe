@@ -1,7 +1,6 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
-using UnityEngine.UI;
 using VContainer;
 
 /// <summary>
@@ -14,19 +13,15 @@ using VContainer;
 ///   IDLE    → cek noise tiap interval → roll chance peek
 ///   PEEKING → spawn prefab di peek point → fade in → tunggu → fade out → destroy
 ///   LEAVING → cleanup prefab → kembali IDLE
-///   JUMPING → jumpscare → game over
 /// </summary>
 public class EnemyAI : MonoBehaviour
 {
-    public enum EnemyState { Idle, Peeking, Leaving, Jumping }
+    public enum EnemyState { Idle, Peeking, Leaving }
 
     [Header("Peek Points")]
     [Tooltip("Titik-titik enemy bisa muncul — tiap point punya prefab sendiri")]
     [SerializeField] private EnemyPeekPoint[] peekPoints;
 
-    [Header("Jumpscare UI")]
-    [SerializeField] private Image jumpscareOverlay;
-    [SerializeField] private float jumpscareDuration = 1.5f;
 
     [Header("Timing")]
     [Tooltip("Chance maksimal peek per roll (0-1)")]
@@ -41,18 +36,16 @@ public class EnemyAI : MonoBehaviour
     [SerializeField] private float idleCheckInterval = 0.5f;
 
     [Header("Grace Period")]
-    [Tooltip("Detik immunity dari jumpscare saat scene baru load")]
+    [Tooltip("Detik immunity saat scene baru load")]
     [SerializeField] private float gracePeriod = 5f;
 
     [Header("Audio")]
     [SerializeField] private AudioSource audioSource;
     [SerializeField] private AudioClip   peekSound;
-    [SerializeField] private AudioClip   jumpscareSound;
 
     [Header("Events")]
     public UnityEvent onStartPeeking;
     public UnityEvent onStopPeeking;
-    public UnityEvent onJumpscare;
 
     // ── Inject — fallback ke .Instance selama migrasi ──
     [Inject] private NoiseTracker _noiseTracker;
@@ -75,16 +68,6 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
-        // BUG FIX — EnemyAI tidak boleh mengelola GameOverManager.
-        // Reset + RegisterMainScene seharusnya dipanggil oleh MainMenuHandler saat
-        // New Game / Load Game, bukan oleh EnemyAI yang bisa ada lebih dari satu di scene.
-        // Hanya register scene name jika belum terdaftar (pertama kali masuk main scene).
-        if (!GameOverManager.IsMainSceneRegistered)
-            GameOverManager.RegisterMainScene(
-                UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
-
-        if (jumpscareOverlay != null) jumpscareOverlay.gameObject.SetActive(false);
-
         // BUG FIX — Tunggu NoiseTracker & SanitySystem siap sebelum memulai state machine.
         // Tanpa ini, jika EnemyAI.Start() dipanggil sebelum NoiseTracker.Awake() selesai
         // (order tidak dijamin Unity), _noiseTracker dan .Instance keduanya null →
@@ -135,7 +118,6 @@ public class EnemyAI : MonoBehaviour
                 case EnemyState.Idle:    yield return IdleRoutine();      break;
                 case EnemyState.Peeking: yield return PeekingRoutine();   break;
                 case EnemyState.Leaving: yield return LeavingRoutine();   break;
-                case EnemyState.Jumping: yield return JumpscareRoutine(); break;
             }
         }
     }
@@ -149,12 +131,6 @@ public class EnemyAI : MonoBehaviour
 
             var noise = _noiseTracker ?? NoiseTracker.Instance;
             if (noise == null) continue;
-
-            if (!_graceActive && noise.NoisePercent >= noise.JumpscareThresholdPct)
-            {
-                _state = EnemyState.Jumping;
-                yield break;
-            }
 
             if (_graceActive) continue;
 
@@ -173,10 +149,7 @@ public class EnemyAI : MonoBehaviour
             {
                 yield return new WaitForSeconds(peekDelay);
 
-                var n2 = _noiseTracker ?? NoiseTracker.Instance;
-                _state = (n2 != null && n2.NoisePercent >= n2.JumpscareThresholdPct)
-                    ? EnemyState.Jumping
-                    : EnemyState.Peeking;
+                _state = EnemyState.Peeking;
 
                 yield break;
             }
@@ -223,11 +196,6 @@ public class EnemyAI : MonoBehaviour
             elapsed += Time.deltaTime;
 
             var noise = _noiseTracker ?? NoiseTracker.Instance;
-            if (noise != null && noise.NoisePercent >= noise.JumpscareThresholdPct)
-            {
-                _state = EnemyState.Jumping;
-                yield break;
-            }
             if (noise != null && noise.NoisePercent < noise.PeekThresholdPct)
             {
                 _state = EnemyState.Leaving;
@@ -238,10 +206,7 @@ public class EnemyAI : MonoBehaviour
         }
 
         // Peek duration habis
-        var n = _noiseTracker ?? NoiseTracker.Instance;
-        _state = (n != null && n.NoisePercent >= n.JumpscareThresholdPct)
-            ? EnemyState.Jumping
-            : EnemyState.Leaving;
+        _state = EnemyState.Leaving;
     }
 
     // ── LEAVING ──
@@ -267,41 +232,6 @@ public class EnemyAI : MonoBehaviour
         onStopPeeking.Invoke();
         _state = EnemyState.Idle;
         Debug.Log("[EnemyAI] Enemy pergi.");
-    }
-
-    // ── JUMPSCARE ──
-    private IEnumerator JumpscareRoutine()
-    {
-        if (GameOverManager.IsGameOver) yield break;
-
-        // Fade in prefab yang sedang aktif (kalau ada) dengan cepat
-        if (_spawnedPeekObject != null)
-            yield return FadeSpawned(1f, fadeSpeed * 3f);
-
-        PlaySound(jumpscareSound);
-        onJumpscare.Invoke();
-        Debug.Log("[EnemyAI] JUMPSCARE!");
-
-        if (jumpscareOverlay != null)
-        {
-            jumpscareOverlay.gameObject.SetActive(true);
-            float e = 0f;
-            while (e < 0.3f)
-            {
-                e += Time.deltaTime;
-                SetImageAlpha(jumpscareOverlay, Mathf.Clamp01(e / 0.3f));
-                yield return null;
-            }
-        }
-
-        yield return new WaitForSeconds(jumpscareDuration);
-
-        if (GameOverManager.IsGameOver) yield break;
-
-        (_noiseTracker ?? NoiseTracker.Instance)?.SetGameOver();
-        (_sanitySystem ?? SanitySystem.Instance)?.ForceReset();
-
-        GameOverManager.TriggerGameOver();
     }
 
     // ──────────────────────────────────────────
@@ -364,13 +294,6 @@ public class EnemyAI : MonoBehaviour
         return _spawnedMaterials[0] != null ? _spawnedMaterials[0].color.a : 0f;
     }
 
-    private void SetImageAlpha(Image img, float alpha)
-    {
-        if (img == null) return;
-        var c = img.color;
-        img.color = new Color(c.r, c.g, c.b, alpha);
-    }
-
     private void PlaySound(AudioClip clip)
     {
         if (audioSource == null || clip == null) return;
@@ -403,8 +326,6 @@ public class EnemyAI : MonoBehaviour
             _spawnedPeekObject = null;
             _spawnedMaterials  = null;
         }
-
-        if (jumpscareOverlay != null) jumpscareOverlay.gameObject.SetActive(false);
         _state = EnemyState.Idle;
         this.enabled = false;
 
@@ -414,11 +335,6 @@ public class EnemyAI : MonoBehaviour
     /// <summary>
     /// Re-aktifkan EnemyAI setelah kembali dari rhythm scene.
     /// Dipanggil oleh RhythmGameReturn.ReturnToCCTV() saat win (bukan game over).
-    ///
-    /// Disable() menghentikan semua coroutine dan set enabled=false.
-    /// Tanpa Enable() dipanggil setelah kembali ke CCTV scene, StateMachine
-    /// tidak pernah restart → IdleRoutine tidak jalan → jumpscare tidak bisa
-    /// terpicu meski noise 100, sampai scene di-reload.
     /// </summary>
     public void Enable()
     {
@@ -427,8 +343,7 @@ public class EnemyAI : MonoBehaviour
         this.enabled = true;
         _state       = EnemyState.Idle;
 
-        // Restart state machine dengan grace period baru agar tidak langsung
-        // jumpscare saat player baru kembali dari rhythm scene.
+        // Restart state machine dengan grace period baru.
         StartCoroutine(GraceRoutine());
         StartCoroutine(StateMachine());
 

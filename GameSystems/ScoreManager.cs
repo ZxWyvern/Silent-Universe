@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-// SceneManagement removed — scene loading now handled by GameOverManager
 
 public class ScoreManager : MonoBehaviour
 {
@@ -77,13 +76,9 @@ public class ScoreManager : MonoBehaviour
     private void TriggerLose()
     {
         // BUG FIX D1 — If game over already triggered by another system, abort.
-        if (GameOverManager.IsGameOver) return;
-
         State = GameState.Lost;
         OnLose?.Invoke();
         Debug.Log("[ScoreManager] You Lose!");
 
-        // BUG FIX D1, D2, #19, #20, #22 — Use central GameOverManager.
-        GameOverManager.TriggerGameOver();
     }
 }

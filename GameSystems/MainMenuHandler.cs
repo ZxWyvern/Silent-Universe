@@ -29,7 +29,6 @@ public class MainMenuHandler : MonoBehaviour
 
         // BUG FIX — Reset GameOverManager agar _alreadyTriggered tidak stuck true
         // dari sesi sebelumnya. Tanpa ini, game over tidak bisa terpicu di sesi baru.
-        GameOverManager.Reset();
 
         // BUG FIX — Reset noise ke 0 saat New Game.
         // NoiseTracker adalah DontDestroyOnLoad — tanpa reset ini noise dari sesi

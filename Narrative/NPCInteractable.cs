@@ -10,12 +10,23 @@ public class NPCInteractable : MonoBehaviour, IInteractable
     [SerializeField] private string promptText  = "Tahan [E] untuk bicara";
     [SerializeField] private bool   canInteract = true;
 
+    [Header("Choice NodeID Convention")]
+    [Tooltip("nextNodeID yang dianggap 'terima'. Contoh: \"accept\"")]
+    [SerializeField] private string acceptNodeID = "accept";
+    [Tooltip("nextNodeID yang dianggap 'tolak'. Contoh: \"reject\"")]
+    [SerializeField] private string rejectNodeID = "reject";
+
     [Header("Events")]
-    public UnityEvent          onInteractBegin;        // saat player mulai hold E
-    public UnityEvent          onDialogueStarted;      // saat dialogue mulai
-    public UnityEvent<string>  onNodeShown;            // (teks) tiap node tampil
-    public UnityEvent<int>     onChoiceSelected;       // (index) saat choice dipilih
-    public UnityEvent          onDialogueEnded;        // saat dialogue selesai
+    public UnityEvent          onInteractBegin;
+    public UnityEvent          onDialogueStarted;
+    public UnityEvent<string>  onNodeShown;
+    public UnityEvent          onDialogueEnded;
+
+    /// Hubungkan ke QuestTrigger.TryStartQuest() di Inspector.
+    public UnityEvent onAcceptChosen;
+
+    /// Hubungkan ke apapun saat player tolak (boleh kosong).
+    public UnityEvent onRejectChosen;
 
     public string PromptText  => promptText;
     public bool   CanInteract => canInteract && !DialogueManager.Instance.IsActive;
@@ -28,6 +39,7 @@ public class NPCInteractable : MonoBehaviour, IInteractable
         if (dm == null) return;
         dm.onDialogueStart.AddListener(OnDMStart);
         dm.onNodeShow.AddListener(OnDMNodeShow);
+        dm.onChoiceSelected.AddListener(OnDMChoiceSelected);
         dm.onDialogueEnd.AddListener(OnDMEnd);
     }
 
@@ -37,6 +49,7 @@ public class NPCInteractable : MonoBehaviour, IInteractable
         if (dm == null) return;
         dm.onDialogueStart.RemoveListener(OnDMStart);
         dm.onNodeShow.RemoveListener(OnDMNodeShow);
+        dm.onChoiceSelected.RemoveListener(OnDMChoiceSelected);
         dm.onDialogueEnd.RemoveListener(OnDMEnd);
     }
 
@@ -52,8 +65,24 @@ public class NPCInteractable : MonoBehaviour, IInteractable
         DialogueManager.Instance.StartDialogue(dialogueData);
     }
 
-    // dipanggil dari DialogueUI saat choice dipilih
-    public void NotifyChoiceSelected(int index) => onChoiceSelected.Invoke(index);
+    private void OnDMChoiceSelected(int index, string nextNodeID)
+    {
+        // Guard: hanya proses saat ini dialogue NPC ini yang aktif
+        if (!_isMyDialogue) return;
+
+        Debug.Log($"[NPCInteractable] Choice dipilih — nextNodeID: '{nextNodeID}'");
+
+        if (!string.IsNullOrEmpty(acceptNodeID) && nextNodeID == acceptNodeID)
+        {
+            Debug.Log("[NPCInteractable] → onAcceptChosen");
+            onAcceptChosen.Invoke();
+        }
+        else if (!string.IsNullOrEmpty(rejectNodeID) && nextNodeID == rejectNodeID)
+        {
+            Debug.Log("[NPCInteractable] → onRejectChosen");
+            onRejectChosen.Invoke();
+        }
+    }
 
     private void OnDMStart(string npcName, string firstText)
     {

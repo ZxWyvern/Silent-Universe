@@ -18,13 +18,14 @@ public class BatteryUI : MonoBehaviour
     [SerializeField] private GameObject batteryPanel;
     [SerializeField] private CanvasGroup panelCanvasGroup;
 
-    [Header("Battery Bar")]
-    [SerializeField] private Slider   batteryBar;
+    [Header("Battery Bar — Segments")]
+    [Tooltip("Drag semua Image segment dari kecil ke besar (bawah ke atas)")]
+    [SerializeField] private Image[]  segments;
     [SerializeField] private TMP_Text batteryPctText;
-    [SerializeField] private Image    barFill;
     [SerializeField] private Color    colorFull     = new Color(0.2f, 0.9f, 0.3f);
     [SerializeField] private Color    colorLow      = new Color(1f, 0.4f, 0.1f);
     [SerializeField] private Color    colorDepleted = Color.red;
+    [SerializeField] private Color    colorEmpty    = new Color(0.15f, 0.15f, 0.15f, 0.4f);
 
     [Header("Stock")]
     [SerializeField] private TMP_Text   stockCountText;
@@ -253,22 +254,25 @@ public class BatteryUI : MonoBehaviour
 
     private void SetBarValue(float percent)
     {
-        // Langsung set tanpa lerp — smooth karena drain sudah per frame
         _displayPercent = percent;
 
-        if (batteryBar != null) batteryBar.value = percent;
         if (batteryPctText != null)
             batteryPctText.text = Mathf.RoundToInt(percent * 100f) + "%";
 
-        if (barFill != null)
-        {
-            Color target;
-            if (percent <= 0f)        target = colorDepleted;
-            else if (percent <= 0.2f) target = colorLow;
-            else                      target = Color.Lerp(colorLow, colorFull, (percent - 0.2f) / 0.8f);
+        if (segments == null || segments.Length == 0) return;
 
-            // Warna transisi smooth tapi bar langsung
-            barFill.color = Color.Lerp(barFill.color, target, Time.deltaTime * 5f);
+        Color activeColor;
+        if (percent <= 0f)        activeColor = colorDepleted;
+        else if (percent <= 0.2f) activeColor = colorLow;
+        else                      activeColor = Color.Lerp(colorLow, colorFull, (percent - 0.2f) / 0.8f);
+
+        float filledCount = percent * segments.Length;
+
+        for (int i = 0; i < segments.Length; i++)
+        {
+            if (segments[i] == null) continue;
+            float fill = Mathf.Clamp01(filledCount - i);
+            segments[i].color = fill > 0.01f ? activeColor : colorEmpty;
         }
     }
 

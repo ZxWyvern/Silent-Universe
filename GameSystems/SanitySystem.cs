@@ -10,7 +10,7 @@ using VContainer;
 /// - Fuse 2 aktif → sanity turun
 /// - Fuse 1 aktif → sanity naik
 /// - Sanity rendah → noise multiplier naik + enemy lebih agresif
-/// - Sanity 0 → game over
+/// - Sanity 0 → onSanityDepleted (mechanic TBD)
 ///
 /// Setup:
 ///   1. Pasang script ini di scene CCTV
@@ -64,7 +64,6 @@ public class SanitySystem : MonoBehaviour
     private float _currentSanity;
     private bool  _isCCTVActive;
     private bool  _isFuse2Active;
-    private bool  _gameOver;
     private bool  _isRhythmScene;      // cache scene name
     private float _lastInvokedSanity;  // hanya invoke event saat nilai berubah
 
@@ -109,13 +108,8 @@ public class SanitySystem : MonoBehaviour
             // Jika di-reset di sini, ada race condition: OnSceneLoaded berjalan setelah
             // CCTVAutoRestore.Start(), sehingga flag yang baru di-set langsung ter-override.
             // _isCCTVActive hanya boleh di-reset oleh: ForceReset(), SetCCTVActive(false),
-            // ResetStaticData(), dan TriggerGameOver().
             // _isCCTVActive = false; // <-- DIHAPUS
 
-            // BUG FIX — Reset _gameOver setiap scene load agar sanity bisa turun
-            // lagi di sesi berikutnya. Tanpa ini, game over dari sanity habis akan
-            // membuat _gameOver = true permanent karena DontDestroyOnLoad.
-            _gameOver = false;
         }
     }
 
@@ -124,7 +118,7 @@ public class SanitySystem : MonoBehaviour
     private void Update()
     {
 
-        if (_gameOver || !_isCCTVActive) return;
+        if (!_isCCTVActive) return;
 
         // Pakai cache — tidak cek SceneManager tiap frame
         if (_isRhythmScene && !_rhythmStarted) return;
@@ -138,7 +132,9 @@ public class SanitySystem : MonoBehaviour
 
             if (_currentSanity <= 0f)
             {
-                TriggerGameOver();
+                _currentSanity = 0f;
+                onSanityDepleted.Invoke();
+                Debug.Log("[Sanity] Sanity habis — mechanic baru belum diimplementasi.");
                 return;
             }
         }
@@ -191,10 +187,8 @@ public class SanitySystem : MonoBehaviour
     {
         s_savedSanity    = 100f;
         s_hasSavedSanity = false;
-        // Reset _gameOver pada instance aktif jika ada
         if (Instance != null)
         {
-            Instance._gameOver      = false;
             Instance._currentSanity = Instance.maxSanity;
             Instance._isCCTVActive  = false;
             Instance._isFuse2Active = false;
@@ -210,38 +204,15 @@ public class SanitySystem : MonoBehaviour
         s_hasSavedSanity = false;
     }
 
-    /// Dipanggil saat jumpscare — reset semua state termasuk CCTV flag
+    /// Reset semua state — dipanggil saat perlu reset penuh
     public void ForceReset()
     {
         _isCCTVActive    = false;
         _isFuse2Active   = false;
-        _gameOver        = false;
         _currentSanity   = maxSanity;
         s_savedSanity    = maxSanity;
         s_hasSavedSanity = false;
     }
 
-    // ──────────────────────────────────────────
-    // Game Over
-    // ──────────────────────────────────────────
 
-    private void TriggerGameOver()
-    {
-        // BUG FIX D1 — If game over already triggered by another system, abort.
-        if (GameOverManager.IsGameOver) return;
-
-        _gameOver        = true;
-        _isCCTVActive    = false;
-        _isFuse2Active   = false;
-        s_hasSavedSanity = false;
-        s_savedSanity    = maxSanity;
-        _currentSanity   = maxSanity;
-
-        onSanityDepleted.Invoke();
-        Debug.Log("[Sanity] GAME OVER — sanity habis.");
-
-        // BUG FIX D1, D2, #20, #22 — Use central GameOverManager instead of
-        // calling SaveFile.Delete() + SceneManager.LoadScene() directly.
-        GameOverManager.TriggerGameOver();
-    }
 }

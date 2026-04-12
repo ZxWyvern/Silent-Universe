@@ -10,12 +10,12 @@ using VContainer;
 ///   - Hapus singleton Awake pattern (if Instance != null ... DontDestroyOnLoad)
 ///   - DontDestroyOnLoad diurus ProjectLifetimeScope via RegisterComponentInNewPrefab
 ///   - Instance dipertahankan sebagai compatibility shim — hapus setelah semua
-///     caller (MainMenuHandler, GameOverManager, CCTVSaveData) sudah di-inject
+///     caller (MainMenuHandler, CCTVSaveData) sudah di-inject
 ///   - QuestTrigger dan QuestUI sudah pakai [Inject] — tidak butuh Instance lagi
 /// </summary>
 public class QuestManager : MonoBehaviour
 {
-    // Compatibility shim — hapus setelah MainMenuHandler, GameOverManager,
+    // Compatibility shim — hapus setelah MainMenuHandler,
     // dan CCTVSaveData.DEV_ResetAll() sudah di-inject QuestManager.
     // Fase 3: Set di Awake() — VContainer menjamin hanya satu instance via RegisterComponentInNewPrefab.
     public static QuestManager Instance { get; private set; }
@@ -67,7 +67,7 @@ public class QuestManager : MonoBehaviour
         // ProjectLifetimeScope.RegisterComponentInNewPrefab(..., Lifetime.Singleton).
         // Tidak ada lagi "if Instance != null Destroy(gameObject)" —
         // VContainer menjamin hanya satu instance yang dibuat.
-        // Instance di-set sebagai shim untuk MainMenuHandler dan GameOverManager.
+        // Instance di-set sebagai shim untuk MainMenuHandler.
         Instance = this;
     }
 
@@ -75,6 +75,16 @@ public class QuestManager : MonoBehaviour
     {
         LoadProgress();
 
+        // BUG FIX — StartQuest tidak boleh dipanggil langsung di Start().
+        // QuestUI.Start() belum tentu sudah jalan (urutan Start() tidak dijamin),
+        // sehingga Subscribe() belum terpanggil dan onStepStarted tidak ada listener.
+        // Tunda ke frame berikutnya via Invoke agar semua Start() selesai dulu.
+        if (!IsQuestActive && startingQuest != null && !IsCompleted(startingQuest.questId))
+            Invoke(nameof(StartStartingQuest), 0f);
+    }
+
+    private void StartStartingQuest()
+    {
         if (!IsQuestActive && startingQuest != null && !IsCompleted(startingQuest.questId))
             StartQuest(startingQuest);
     }

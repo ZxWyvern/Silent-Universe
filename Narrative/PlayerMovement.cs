@@ -141,12 +141,16 @@ public sealed class PlayerMovement : MonoBehaviour
         if (cameraTarget == null && Camera.main != null)
             cameraTarget = Camera.main.transform;
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible   = false;
+        LockCursor();
 
         ResolveActions();
     }
 
+    public void LockCursor()
+    {
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible   = false;
+    }
     private void OnEnable()
     {
         inputActions?.FindActionMap(actionMapName)?.Enable();

@@ -61,12 +61,14 @@ public class NoiseTracker : MonoBehaviour
         DontDestroyOnLoad(gameObject);
         SceneManager.sceneLoaded   += OnSceneLoaded;
         SceneManager.sceneUnloaded += OnSceneUnloaded;
+        NoiseReporter.OnNoiseAdded += AddNoise;
     }
 
     private void OnDestroy()
     {
         SceneManager.sceneLoaded   -= OnSceneLoaded;
         SceneManager.sceneUnloaded -= OnSceneUnloaded;
+        NoiseReporter.OnNoiseAdded -= AddNoise;
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)

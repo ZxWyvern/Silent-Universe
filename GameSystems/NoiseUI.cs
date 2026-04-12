@@ -50,16 +50,11 @@ public class NoiseUI : MonoBehaviour
         if (barFill != null)
         {
             float peek = NoiseTracker.Instance.PeekThresholdPct;
-            float jump = NoiseTracker.Instance.JumpscareThresholdPct;
 
-            Color targetColor;
-            if (_displayValue >= jump)
-                targetColor = colorDanger;
-            else if (_displayValue >= peek)
-                targetColor = Color.Lerp(colorWarning, colorDanger,
-                    (_displayValue - peek) / Mathf.Max(jump - peek, 0.01f));
-            else
-                targetColor = Color.Lerp(colorSafe, colorWarning,
+            Color targetColor = _displayValue >= peek
+                ? Color.Lerp(colorWarning, colorDanger,
+                    (_displayValue - peek) / Mathf.Max(1f - peek, 0.01f))
+                : Color.Lerp(colorSafe, colorWarning,
                     _displayValue / Mathf.Max(peek, 0.01f));
 
             barFill.color = Color.Lerp(barFill.color, targetColor, smoothSpeed * Time.deltaTime);

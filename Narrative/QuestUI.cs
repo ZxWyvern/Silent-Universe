@@ -1,17 +1,11 @@
 using UnityEngine;
 using TMPro;
 using System.Collections;
-using VContainer;
 
 /// <summary>
 /// QuestUI — tampilkan objective quest di HUD.
-///
-/// FIX: Tambah [Inject] QuestManager agar tidak bergantung pada QuestManager.Instance
-/// yang belum tersedia saat OnEnable() dipanggil (race condition VContainer).
-///
-/// Urutan Unity lifecycle dengan VContainer:
-///   Awake() → VContainer inject → Start() → OnEnable (jika aktif sejak awal)
-/// Karena OnEnable() dipanggil SEBELUM inject selesai, subscribe dipindah ke Start().
+/// Tidak pakai [Inject] — subscribe langsung ke QuestManager.Instance
+/// via Update() polling sampai QuestManager ready, lalu langsung tampil.
 /// </summary>
 public class QuestUI : MonoBehaviour
 {
@@ -27,41 +21,45 @@ public class QuestUI : MonoBehaviour
     [SerializeField] private float fadeSpeed         = 4f;
     [SerializeField] private float holdAfterComplete = 1.2f;
 
-    // FIX: Inject QuestManager — tidak bergantung pada .Instance yang belum ada saat OnEnable
-    [Inject] private QuestManager _questManager;
-
-    private Coroutine _routine;
-    private bool      _subscribed;
+    private Coroutine  _routine;
+    private bool       _subscribed;
+    private QuestManager _qm;
 
     private void Awake()
     {
         if (questPanel == null)    questPanel    = GetComponentInChildren<CanvasGroup>(true);
         if (objectiveText == null) objectiveText = GetComponentInChildren<TMP_Text>(true);
+
+        // Panel mulai tersembunyi
         SetAlpha(0f);
     }
 
-    // FIX: Subscribe di Start() bukan OnEnable()
-    // OnEnable() dipanggil sebelum VContainer selesai inject — _questManager masih null.
-    // Start() dijamin dipanggil setelah semua [Inject] fields sudah terisi.
-    private void Start()
+    private void Update()
     {
-        Subscribe();
-        RestoreState();
-    }
+        // Polling sampai QuestManager.Instance tersedia, lalu subscribe sekali
+        if (_subscribed) return;
 
-    private void OnEnable()
-    {
-        // Hanya re-subscribe jika Start() sudah pernah jalan (re-enable setelah disable)
-        if (_subscribed)
+        var qm = QuestManager.Instance;
+        if (qm == null) return;
+
+        _qm = qm;
+        _qm.onStepStarted.AddListener(OnStepStarted);
+        _qm.onStepCompleted.AddListener(OnStepCompleted);
+        _qm.onAllQuestsCompleted.AddListener(OnAllQuestsCompleted);
+        _subscribed = true;
+
+        Debug.Log("[QuestUI] Subscribe ke QuestManager berhasil.");
+
+        // Langsung cek apakah quest sudah aktif saat subscribe
+        if (_qm.IsQuestActive)
         {
-            Subscribe();
-            RestoreState();
+            string obj = _qm.CurrentObjective();
+            if (!string.IsNullOrEmpty(obj))
+            {
+                Debug.Log($"[QuestUI] Quest sudah aktif saat subscribe: '{obj}'");
+                ShowImmediate(obj);
+            }
         }
-    }
-
-    private void OnDisable()
-    {
-        Unsubscribe();
     }
 
     private void OnDestroy()
@@ -69,29 +67,28 @@ public class QuestUI : MonoBehaviour
         Unsubscribe();
     }
 
-    // ── Subscribe / Unsubscribe ──
-
-    private void Subscribe()
+    private void OnDisable()
     {
-        // Fallback ke Instance untuk editor testing tanpa container
-        var qm = _questManager ?? QuestManager.Instance;
-        if (qm == null || _subscribed) return;
+        Unsubscribe();
+    }
 
-        qm.onStepStarted.AddListener(OnStepStarted);
-        qm.onStepCompleted.AddListener(OnStepCompleted);
-        qm.onAllQuestsCompleted.AddListener(OnAllQuestsCompleted);
-        _subscribed = true;
+    private void OnEnable()
+    {
+        // Kalau sudah pernah subscribe tapi di-disable, re-subscribe
+        if (_subscribed && _qm != null)
+        {
+            _qm.onStepStarted.AddListener(OnStepStarted);
+            _qm.onStepCompleted.AddListener(OnStepCompleted);
+            _qm.onAllQuestsCompleted.AddListener(OnAllQuestsCompleted);
+        }
     }
 
     private void Unsubscribe()
     {
-        if (!_subscribed) return;
-        var qm = _questManager ?? QuestManager.Instance;
-        if (qm == null) return;
-
-        qm.onStepStarted.RemoveListener(OnStepStarted);
-        qm.onStepCompleted.RemoveListener(OnStepCompleted);
-        qm.onAllQuestsCompleted.RemoveListener(OnAllQuestsCompleted);
+        if (!_subscribed || _qm == null) return;
+        _qm.onStepStarted.RemoveListener(OnStepStarted);
+        _qm.onStepCompleted.RemoveListener(OnStepCompleted);
+        _qm.onAllQuestsCompleted.RemoveListener(OnAllQuestsCompleted);
         _subscribed = false;
     }
 
@@ -99,7 +96,9 @@ public class QuestUI : MonoBehaviour
 
     private void OnStepStarted(string questTitle, string objective)
     {
-        Restart(ShowStep(objective));
+        Debug.Log($"[QuestUI] OnStepStarted: '{objective}'");
+        ShowImmediate(objective);
+        Restart(FadeIn());
     }
 
     private void OnStepCompleted(string objective)
@@ -111,16 +110,11 @@ public class QuestUI : MonoBehaviour
 
     private void OnAllQuestsCompleted() => Restart(ShowAllDone());
 
-    // ── Restore ──
+    // ── Show ──
 
-    private void RestoreState()
+    /// Set text dan alpha langsung (tanpa animasi) — untuk restore state
+    private void ShowImmediate(string objective)
     {
-        var qm = _questManager ?? QuestManager.Instance;
-        if (qm == null || !qm.IsQuestActive) return;
-
-        string objective = qm.CurrentObjective();
-        if (string.IsNullOrEmpty(objective)) return;
-
         if (objectiveText != null)
         {
             objectiveText.text  = objective;
@@ -129,23 +123,18 @@ public class QuestUI : MonoBehaviour
         SetAlpha(1f);
     }
 
-    // ── Coroutines ──
-
-    private IEnumerator ShowStep(string objective)
+    /// Fade in panel setelah ShowImmediate
+    private IEnumerator FadeIn()
     {
-        if (questPanel != null && questPanel.alpha > 0f)
+        if (questPanel == null) yield break;
+        // Mulai dari 0, fade ke 1
+        questPanel.alpha = 0f;
+        while (!Mathf.Approximately(questPanel.alpha, 1f))
         {
-            yield return Fade(0f);
-            yield return new WaitForSeconds(0.15f);
+            questPanel.alpha = Mathf.MoveTowards(questPanel.alpha, 1f, fadeSpeed * Time.deltaTime);
+            yield return null;
         }
-
-        if (objectiveText != null)
-        {
-            objectiveText.text  = objective;
-            objectiveText.color = objectiveColor;
-        }
-
-        yield return Fade(1f);
+        questPanel.alpha = 1f;
     }
 
     private IEnumerator ShowAllDone()
@@ -153,19 +142,15 @@ public class QuestUI : MonoBehaviour
         yield return new WaitForSeconds(holdAfterComplete);
         if (objectiveText != null) objectiveText.text = "SEMUA MISI SELESAI";
         yield return new WaitForSeconds(holdAfterComplete);
-        yield return Fade(0f);
-    }
-
-    private IEnumerator Fade(float target)
-    {
-        if (questPanel == null) yield break;
-        while (!Mathf.Approximately(questPanel.alpha, target))
+        while (!Mathf.Approximately(questPanel.alpha, 0f))
         {
-            questPanel.alpha = Mathf.MoveTowards(questPanel.alpha, target, fadeSpeed * Time.deltaTime);
+            questPanel.alpha = Mathf.MoveTowards(questPanel.alpha, 0f, fadeSpeed * Time.deltaTime);
             yield return null;
         }
-        questPanel.alpha = target;
+        questPanel.alpha = 0f;
     }
+
+    // ── Helpers ──
 
     private void Restart(IEnumerator routine)
     {
