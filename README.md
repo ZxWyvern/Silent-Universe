@@ -1,87 +1,70 @@
-***
+![Unity](https://img.shields.io/badge/Unity-000000.svg?style=for-the-badge&logo=unity&logoColor=white) ![VContainer](https://img.shields.io/badge/VContainer-000000?style=for-the-badge&logo=unity&logoColor=white) ![URP](https://img.shields.io/badge/URP-black?style=for-the-badge&logo=unity&logoColor=white)
+# Silent Universe Project Overview
 
-# Modular Unity Game System Prototype
+**Silent Universe** is a narrative horror game built with the Unity Engine, focusing on a chilling atmosphere, detailed inventory management, and complex interaction mechanics between the player, the environment, and NPCs. The project is currently undergoing a major architectural refactor to implement Dependency Injection for better scalability and maintainability.
 
-A scalable, production-ready Unity prototype showcasing modular architecture, reusable gameplay mechanics, and clean separation of concerns. Perfect for solo developers building mid-to-large projects.
+## Technologies Used
 
-**Demo**: [Live Demo Link] | **Unity Version**: 2022.3 LTS
+  * **Game Engine**: Unity 6 (utilizing the new Render Graph API).
+  * **Render Pipeline**: Universal Render Pipeline (URP).
+  * **Architecture & DI**: [VContainer](https://vcontainer.hadashikick.jp/) (Dependency Injection for Unity).
+  * **Input System**: Unity Input System Package (Action-based).
+  * **Rendering Techniques**: Custom URP Renderer Features using Render Graph (e.g., CRT Effect).
+  * **UI System**: Unity UI (uGUI) with an Event-based architecture.
 
-## Key Features
+## Architecture & Design Principles
 
-### Modular Architecture
-- Independent modules: Environment, GameSystems, CCTV, AI, and more
-- Clear boundaries: Strict separation between gameplay logic and core systems
-- Scalable design: Built for easy expansion and long-term maintenance
-- Assembly Definitions: Organized with `.asmdef` files for optimal performance
+The project has migrated from traditional Singleton patterns toward **Inversion of Control (IoC)** using **VContainer**.
 
-### Core Gameplay Systems
-- CCTV Camera System - Full save/restore functionality
-- Enemy AI - Peek points with environmental awareness
-- Checkpoint System - Robust progress tracking
-- Fuse Box Mechanics - Electrical interaction system
-- Disk Repair - Interactive repair mechanics
-- Choppable Objects - Dynamic environmental interactions
-- Footstep System - Immersive audio feedback
-- Dampener Controller - Dynamic gameplay state management
+### 1\. Composition Root (Lifetime Scopes)
 
-### Production-Ready Structure
-```
-Assets/
-├── Core/                 # Shared foundation systems
-├── GameSystems/          # Gameplay modules
-├── Environment/          # Interactive world systems
-├── CCTV/                # Surveillance mechanics
-├── AI/                  # Enemy behavior systems
-└── Events/              # Cross-scene communication
-```
+The architecture is divided into scopes to manage object lifecycles:
 
-## Project Goals
+  * **ProjectLifetimeScope**: Manages global services (Singletons) that persist across scenes, such as `SanitySystem`, `NoiseTracker`, and `QuestManager`.
+  * **SceneLifetimeScope**: Manages components specific to the gameplay scene, such as `EnemyAI`, `PlayerInventory`, and UI systems.
 
-This repository provides a battle-tested foundation for solo developers who want to:
+### 2\. Dependency Injection (DI)
 
-- Learn scalable Unity architecture patterns
-- Build reusable, production-ready gameplay systems
-- Avoid tightly coupled "spaghetti code"
-- Maintain long-term project stability and performance
+Components no longer search for references independently. Instead, dependencies are injected via:
 
-## Event-Driven Communication
+  * **Field/Method Injection**: For `MonoBehaviour` components.
+  * **RegisterComponent**: To register existing scene instances into the container.
 
-- Cross-scene Event Channels eliminate direct references
-- Loose coupling between all systems
-- Hot-swappable modules without breaking dependencies
+### 3\. Decoupling with Interfaces
 
-## Tech Stack
-- Unity 2022.3 LTS (C#)
-- Assembly Definition Files (.asmdef)
-- Event-Driven Architecture
-- ScriptableObject-based data systems
+Interfaces like `IAudioManager`, `IInteractable`, and `IPersistable` ensure that Assembly Definitions (asmdef) remain loosely coupled. For example, the inventory system can trigger audio without a direct dependency on the `AudioManager` implementation.
 
-## Quick Start
+## Design Patterns
 
-1. Clone the repository
-2. Open `ModularGamePrototype.sln` in Unity Hub
-3. Navigate to `Scenes/MainDemo.unity`
-4. Press Play to experience all systems in action!
+  * **Observer Pattern**: Extensively used via `UnityEvent` for inter-system communication (e.g., `onKeyAdded` in `PlayerInventory`).
+  * **Persistence Pattern**: Utilizes the `IPersistable` interface, where each system formats its own data before being saved by the `GameSaveService`.
+  * **Strategy Pattern**: Implemented in the interaction system (`IInteractable`), allowing diverse objects (doors, items, NPCs) to have unique interaction behaviors called through a uniform interface.
+  * **Command Pattern**: Handled via the Unity Input System for asynchronous player input.
+  * **State Management**: Uses a `GameState` class to track global statuses, such as whether the CCTV mode is active.
 
-## Status
-**Work In Progress**  
-Continuously refactored toward production-ready standards. New systems and optimizations added weekly.
+## File & Folder Structure
 
-## Contributing
-```
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/AmazingNewSystem`)
-3. Commit your changes (`git commit -m 'Add: AmazingNewSystem'`)
-4. Push to branch (`git push origin feature/AmazingNewSystem`)
-5. Open a Pull Request
+The project uses **Assembly Definitions (.asmdef)** to optimize compilation times and enforce code boundaries:
+
+```text
+_Scripts/
+├── _Core/                # Core systems, Interfaces (IAudioManager, IPersistable), GameSave
+├── LifetimeScopes/       # VContainer configurations (Project & Scene Scopes)
+├── InventorySystem/      # Player Inventory, Item logic, Pickups, and related UI
+├── GameSystems/          # Main managers (AudioManager, GameManager, EnemyAI)
+├── Narrative/            # DialogueManager, QuestSystem, NPCInteraction
+├── Rendering/            # Custom Shaders, CRT Renderer Feature (Render Graph)
+└── MainMenu/             # UI logic and visual effects for the main menu
 ```
 
-## License
-GNU GPL v3 - See [LICENSE](LICENSE) file for details.
+## Rendering System (Custom CRT)
 
-***
+The game features a unique **CRT (Cathode Ray Tube)** visual effect implemented with the Unity 6 Render Graph:
 
-**Built for solo Unity developers**  
-Questions? Open an issue or join the Discord: [https://discord.gg/GrBvTerFjE](https://discord.gg/GrBvTerFjE)
+1.  **RecordRenderGraph**: Captures the current camera output.
+2.  **Blit Pass**: Injects the CRT material into a temporary texture.
+3.  **Copy Back Pass**: Returns the processed image to the main camera target.
 
-***
+## Persistence System
+
+The save system is decentralized. Through `IPersistable`, components like `PlayerInventory` are responsible for their own data state. The `GameSaveService` triggers `Persist()` on all registered implementors before writing the final `SaveFile` to disk.
