@@ -31,15 +31,21 @@ public class AudioManager : MonoBehaviour, IAudioManager
     [SerializeField] private string paramMusic      = "VolumeMusic";
     [SerializeField] private string paramAmbience   = "VolumeAmbience";
 
-    [Header("Reverb")]
-    [SerializeField] private string paramReverbSend = "FootstepReverbSend";
-    [SerializeField] private string paramFlashlightReverb = "VolumeFlashlightReverb"; // Nama dari langkah 1
+    [Header("Reverb Parameter Names")]
+    [Tooltip("Exposed parameter: Send level di SFX Footstep → Reverb Bus")]
+    [SerializeField] private string paramReverbSend         = "FootstepReverbSend";
+    [Tooltip("Exposed parameter: Send level di SFX Flashlight → Reverb Bus")]
+    [SerializeField] private string paramFlashlightReverbSend = "FlashlightReverbSend";
+
+    // ── Private State ─────────────────────────────────────────────────────────
 
     private readonly Dictionary<AudioCategory, List<AudioSource>> _registry
         = new Dictionary<AudioCategory, List<AudioSource>>();
 
     private readonly Dictionary<AudioCategory, AudioMixerGroup> _groupMap
         = new Dictionary<AudioCategory, AudioMixerGroup>();
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     private void Awake()
     {
@@ -66,12 +72,9 @@ public class AudioManager : MonoBehaviour, IAudioManager
         _groupMap[AudioCategory.Music]      = groupMusic;
         _groupMap[AudioCategory.Ambience]   = groupAmbience;
     }
-    public void SetFlashlightReverb(float value)
-    {
-    if (masterMixer == null) return;
-    // Mengubah nilai 0-1 menjadi dB (-80 sampai 20)
-    masterMixer.SetFloat(paramFlashlightReverb, Mathf.Log10(Mathf.Max(value, 0.0001f)) * 20f);
-    }
+
+    // ── Registration API ──────────────────────────────────────────────────────
+
     public void RegisterSource(AudioCategory category, AudioSource source)
     {
         if (source == null) return;
@@ -96,6 +99,8 @@ public class AudioManager : MonoBehaviour, IAudioManager
         return null;
     }
 
+    // ── Volume API ────────────────────────────────────────────────────────────
+
     public void SetVolumeMaster(float v)     => SetVolume(paramMaster,     v);
     public void SetVolumeSFX(float v)        => SetVolume(paramSFX,        v);
     public void SetVolumeFootstep(float v)   => SetVolume(paramFootstep,   v);
@@ -118,12 +123,13 @@ public class AudioManager : MonoBehaviour, IAudioManager
     public float GetVolumeMusic()      => GetVolume(paramMusic);
     public float GetVolumeAmbience()   => GetVolume(paramAmbience);
 
+    // ── Reverb API ────────────────────────────────────────────────────────────
+
+    /// <summary>Footstep reverb — dikontrol dynamic oleh FootstepSystem.</summary>
     public void SetReverbSend(float normalizedValue)
     {
         if (masterMixer == null) return;
-        float clamped = Mathf.Clamp01(normalizedValue);
-        float db      = clamped <= 0f ? -80f : Mathf.Lerp(-80f, 0f, clamped);
-        masterMixer.SetFloat(paramReverbSend, db);
+        masterMixer.SetFloat(paramReverbSend, NormalizedToSendDb(normalizedValue));
     }
 
     public float GetReverbSend()
@@ -131,6 +137,26 @@ public class AudioManager : MonoBehaviour, IAudioManager
         if (masterMixer == null) return 0f;
         if (!masterMixer.GetFloat(paramReverbSend, out float db)) return 0f;
         return Mathf.InverseLerp(-80f, 0f, db);
+    }
+
+    /// <summary>
+    /// Flashlight reverb — dikontrol oleh FlashlightSoundFeedback.
+    /// Sama persis konversinya dengan SetReverbSend.
+    /// value: 0.0 = dry, 1.0 = full send ke Reverb Bus.
+    /// </summary>
+    public void SetFlashlightReverb(float normalizedValue)
+    {
+        if (masterMixer == null) return;
+        masterMixer.SetFloat(paramFlashlightReverbSend, NormalizedToSendDb(normalizedValue));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>Konversi 0-1 linear ke dB range -80..0 untuk Send level.</summary>
+    private static float NormalizedToSendDb(float normalizedValue)
+    {
+        float clamped = Mathf.Clamp01(normalizedValue);
+        return clamped <= 0f ? -80f : Mathf.Lerp(-80f, 0f, clamped);
     }
 
     private void SetVolume(string param, float value)

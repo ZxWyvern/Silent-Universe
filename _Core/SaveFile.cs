@@ -218,6 +218,13 @@ public class SaveData
 
     public string droppedItems = "";
 
+    // ── Settings (sensitivity + keybinds) ────────────────────────
+    // Disimpan di sini agar tersinkron dengan save system JSON,
+    // bukan tersebar di PlayerPrefs yang bisa hilang saat clear cache.
+    // Nilai -1 pada sensitivity = belum pernah disimpan → pakai default.
+    public float  sensitivity  = -1f;  // -1 = pakai default (0.15f)
+    public string keyBindings  = "";   // JSON dari InputActionAsset.SaveBindingOverridesAsJson()
+
     // Flashlight state — di-persist via FlashlightController.PersistFlashlight()
     public float flashlightBattery           = -1f;  // -1 = belum pernah save, pakai default
     public bool  flashlightOverheat          = false;

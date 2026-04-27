@@ -27,12 +27,26 @@ public sealed class CrouchSystem : MonoBehaviour
     [Header("── Speed ───────────────────────────────────────────────")]
     [SerializeField] [Range(0.1f, 1f)] private float crouchSpeedMultiplier = 0.55f;
 
+    [Header("── Input Delay ─────────────────────────────────────────")]
+    [Tooltip("Delay sebelum crouch aktif setelah tombol ditekan (detik). 0 = instan.")]
+    [SerializeField] [Range(0f, 0.5f)] private float crouchInputDelay = 0.15f;
+
     private CharacterController _cc;
     private InputAction         _action;
     private bool                _wantsToStand;
+    private Vector3             _originalCenter;
+    private float               _crouchDelayTimer;
+    private bool                _pendingCrouch;
 
-    // FIX spawn: simpan center asli dari Inspector sebelum apapun diubah
-    private Vector3 _originalCenter;
+    // FIX MANTUL — CrouchSystem tidak langsung set localPosition.y kamera.
+    // Sebaliknya, expose target Y ini ke HeadBobSystem agar HeadBob yang
+    // apply posisi kamera secara terpusat di LateUpdate, tidak ada dua sistem
+    // yang saling override localPosition di frame yang sama.
+    public float CameraTargetY { get; private set; }
+
+    // Smooth damp state — lebih smooth dan framerate-independent vs Lerp
+    private float _cameraYVelocity;
+    private float _heightVelocity;
 
     public bool  IsCrouching      { get; private set; }
     public bool  IsCeilingBlocked { get; private set; }
@@ -42,8 +56,6 @@ public sealed class CrouchSystem : MonoBehaviour
     private void Awake()
     {
         _cc = GetComponent<CharacterController>();
-
-        // Catat center dari Inspector SEBELUM kita sentuh apapun
         _originalCenter = _cc.center;
 
         if (cameraTarget == null && Camera.main != null)
@@ -60,6 +72,8 @@ public sealed class CrouchSystem : MonoBehaviour
     private void Start()
     {
         SnapControllerHeight(heightStand);
+        CameraTargetY = cameraHeightStand;
+
         if (cameraTarget != null)
             SnapCameraHeight(cameraHeightStand);
     }
@@ -83,17 +97,31 @@ public sealed class CrouchSystem : MonoBehaviour
 
     private void OnCrouchStarted(InputAction.CallbackContext ctx)
     {
-        IsCrouching   = true;
-        _wantsToStand = false;
+        _wantsToStand     = false;
+        _pendingCrouch    = true;
+        _crouchDelayTimer = crouchInputDelay;
     }
 
     private void OnCrouchCanceled(InputAction.CallbackContext ctx)
     {
-        _wantsToStand = true;
+        // Kalau tombol dilepas sebelum delay habis, batalkan pending crouch
+        _pendingCrouch = false;
+        _wantsToStand  = true;
     }
 
     private void TickCrouch()
     {
+        // Hitung countdown delay crouch
+        if (_pendingCrouch)
+        {
+            _crouchDelayTimer -= Time.deltaTime;
+            if (_crouchDelayTimer <= 0f)
+            {
+                IsCrouching    = true;
+                _pendingCrouch = false;
+            }
+        }
+
         if (_wantsToStand)
         {
             IsCeilingBlocked = CheckCeiling();
@@ -111,10 +139,17 @@ public sealed class CrouchSystem : MonoBehaviour
         float targetHeight = IsCrouching ? heightCrouch : heightStand;
         float targetCamY   = IsCrouching ? cameraHeightCrouch : cameraHeightStand;
 
-        LerpControllerHeight(targetHeight);
+        SmoothDampControllerHeight(targetHeight);
 
-        if (cameraTarget != null)
-            LerpCameraHeight(targetCamY);
+        // FIX MANTUL — Update CameraTargetY via SmoothDamp (framerate-independent).
+        // HeadBobSystem yang apply posisi ini ke localPosition di LateUpdate,
+        // bukan CrouchSystem langsung — menghindari double-write di frame yang sama.
+        CameraTargetY = Mathf.SmoothDamp(
+            CameraTargetY,
+            targetCamY,
+            ref _cameraYVelocity,
+            1f / cameraLerpSpeed   // smoothTime = kebalikan speed
+        );
 
         float range = heightStand - heightCrouch;
         CrouchProgress = range > 0f
@@ -133,27 +168,24 @@ public sealed class CrouchSystem : MonoBehaviour
         );
     }
 
-    private void LerpControllerHeight(float targetHeight)
+    private void SmoothDampControllerHeight(float targetHeight)
     {
-        float t         = heightLerpSpeed * Time.deltaTime;
-        float newHeight = Mathf.Lerp(_cc.height, targetHeight, t);
-        float newCenterY = Mathf.Lerp(_cc.center.y, newHeight * 0.5f, t);
+        // FIX SMOOTH — SmoothDamp lebih smooth dan framerate-independent vs Lerp
+        float newHeight = Mathf.SmoothDamp(
+            _cc.height,
+            targetHeight,
+            ref _heightVelocity,
+            1f / heightLerpSpeed
+        );
 
+        float newCenterY = newHeight * 0.5f;
         _cc.height = newHeight;
         _cc.center = new Vector3(_originalCenter.x, newCenterY, _originalCenter.z);
-    }
-
-    private void LerpCameraHeight(float targetY)
-    {
-        Vector3 pos = cameraTarget.localPosition;
-        pos.y = Mathf.Lerp(pos.y, targetY, cameraLerpSpeed * Time.deltaTime);
-        cameraTarget.localPosition = pos;
     }
 
     private void SnapControllerHeight(float height)
     {
         _cc.height = height;
-        // FIX: pertahankan x dan z dari Inspector, hanya y yang disesuaikan
         _cc.center = new Vector3(_originalCenter.x, height * 0.5f, _originalCenter.z);
     }
 
@@ -162,6 +194,8 @@ public sealed class CrouchSystem : MonoBehaviour
         Vector3 pos = cameraTarget.localPosition;
         pos.y = y;
         cameraTarget.localPosition = pos;
+        CameraTargetY      = y;
+        _cameraYVelocity   = 0f;
     }
 
     public void ForceCrouch()

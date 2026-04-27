@@ -105,6 +105,14 @@ public sealed class PlayerMovement : MonoBehaviour
             return speed;
         }
     }
+    public float ReturnSens()
+    {
+        return mouseSensitivity;
+    }
+    public void SetSensitivity(float value)
+    {
+        mouseSensitivity = value;
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Public API
@@ -259,4 +267,5 @@ private void TickLook()
         if (cameraTarget != null)
             cameraTarget.localRotation = Quaternion.Euler(_cameraPitch, 0f, 0f);
     }
+
 }

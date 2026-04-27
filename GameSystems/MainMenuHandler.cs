@@ -4,11 +4,6 @@ using UnityEngine.SceneManagement;
 /// <summary>
 /// MainMenuHandler — pasang pada GameObject di scene Main Menu.
 /// Hubungkan tombol "New Game" dan "Continue" ke fungsi ini via Button OnClick() di Inspector.
-///
-/// BUG FIX:
-///   - NewGame() kini mereset semua static state (SanitySystem, QuestManager)
-///     sebelum load scene, sehingga sesi baru tidak mewarisi sanity rendah
-///     atau _gameOver = true dari sesi sebelumnya.
 /// </summary>
 public class MainMenuHandler : MonoBehaviour
 {
@@ -24,21 +19,17 @@ public class MainMenuHandler : MonoBehaviour
         // Hapus save lama
         GameSave.DeleteSave();
 
-        // Reset semua static state agar sesi baru bersih.
+        // Reset semua static state agar sesi baru bersih
         SanitySystem.ResetStaticData();
-
-        // BUG FIX — Reset GameOverManager agar _alreadyTriggered tidak stuck true
-        // dari sesi sebelumnya. Tanpa ini, game over tidak bisa terpicu di sesi baru.
-
-        // BUG FIX — Reset noise ke 0 saat New Game.
-        // NoiseTracker adalah DontDestroyOnLoad — tanpa reset ini noise dari sesi
-        // sebelumnya (termasuk saat game over di rhythm scene) terbawa ke sesi baru
-        // dan tidak decay karena _isRhythmScene mungkin masih true.
         NoiseTracker.Instance?.ResetNoise();
 
-        // Reset quest progress jika QuestManager ada
         if (QuestManager.Instance != null)
             QuestManager.Instance.ResetAllProgress();
+
+        // FIX #2 — Reset timeScale sebelum load scene.
+        // Kalau player pause → exit to menu → new game, timeScale masih 0
+        // dari sesi pause sebelumnya → scene baru load tapi semua frozen.
+        Time.timeScale = 1f;
 
         Debug.Log("[MainMenu] New Game — semua state direset.");
         SceneManager.LoadScene(firstSceneName);
@@ -52,6 +43,11 @@ public class MainMenuHandler : MonoBehaviour
             Debug.LogWarning("[MainMenu] Tidak ada save data untuk di-continue.");
             return;
         }
+
+        // FIX #2 — Reset timeScale sebelum load scene.
+        // Kalau player pause → exit to menu → continue, timeScale masih 0
+        // dari sesi pause sebelumnya → scene load tapi semua frozen.
+        Time.timeScale = 1f;
 
         GameSave.Load();
     }

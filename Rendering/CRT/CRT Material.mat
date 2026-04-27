@@ -110,7 +110,7 @@ Material:
     - _MaskIntensity: 0
     - _MaskScale: 1
     - _Metallic: 0
-    - _NoiseStrength: 0.0651
+    - _NoiseStrength: 0.017
     - _OcclusionStrength: 1
     - _Parallax: 0.005
     - _QueueOffset: 0

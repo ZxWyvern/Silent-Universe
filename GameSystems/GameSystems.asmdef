@@ -10,6 +10,7 @@
         "Restorasi",
         "Unity.InputSystem",
         "Unity.TextMeshPro",
+        "Unity.RenderPipelines.Universal.Runtime",
         "UnityEngine.UI",
         "VContainer",
         "VContainer.Unity"

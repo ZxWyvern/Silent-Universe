@@ -92,10 +92,22 @@ public class FootstepSystem : MonoBehaviour
 
         if (playerMovement == null)
             playerMovement = GetComponent<PlayerMovement>();
+    }
 
-        // Register AudioSource ke AudioManager — tidak perlu assign mixer group manual
+    private void Start()
+    {
+        // FIX #3 — Pindah register ke Start agar AudioManager sudah selesai Awake.
+        // Awake() tidak ada jaminan urutan antar GameObject — kalau FootstepSystem.Awake()
+        // jalan sebelum AudioManager.Awake(), AudioServices.Manager masih null
+        // dan footstep tidak ter-register tanpa error apapun.
         if (footstepSource != null)
-            AudioServices.Manager?.RegisterSource(AudioCategory.Footstep, footstepSource);
+        {
+            if (AudioServices.Manager != null)
+                AudioServices.Manager.RegisterSource(AudioCategory.Footstep, footstepSource);
+            else
+                Debug.LogWarning("[FootstepSystem] AudioServices.Manager null saat Start — " +
+                                 "pastikan AudioManager ada di scene.");
+        }
     }
 
     private void OnDestroy()

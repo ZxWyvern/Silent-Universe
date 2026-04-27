@@ -5,6 +5,7 @@ public sealed class HeadbobSystem : MonoBehaviour
     [Header("── References ──────────────────────────────────────────")]
     [SerializeField] private PlayerMovement playerMovement;
     [SerializeField] private FootstepSystem footstepSystem;
+    [SerializeField] private CrouchSystem   crouchSystem;
     [SerializeField] private Transform      cameraTarget;
 
     [Header("── Positional Amplitude (Jarak Guncangan) ──────────────")]
@@ -27,27 +28,55 @@ public sealed class HeadbobSystem : MonoBehaviour
 
     private float   _currentAmpX;
     private float   _currentAmpY;
-    
-    // Variabel baru untuk melacak offset headbob agar tidak bentrok dengan CrouchSystem
     private Vector3 _currentBobOffset = Vector3.zero;
+
+    // ── Lifecycle ─────────────────────────────────────────────────
 
     private void Start()
     {
-        // Auto-resolve jika kosong
         if (playerMovement == null) playerMovement = GetComponent<PlayerMovement>();
         if (footstepSystem == null) footstepSystem = GetComponent<FootstepSystem>();
-        if (cameraTarget == null && Camera.main != null) cameraTarget = Camera.main.transform;
+        if (crouchSystem   == null) crouchSystem   = GetComponent<CrouchSystem>();
+        if (cameraTarget   == null && Camera.main != null) cameraTarget = Camera.main.transform;
+    }
+
+    public void SetEnabled(bool value)
+    {
+        if (!value && cameraTarget != null)
+        {
+            cameraTarget.localPosition -= _currentBobOffset;
+            _currentBobOffset           = Vector3.zero;
+            _currentAmpX                = 0f;
+            _currentAmpY                = 0f;
+        }
+        enabled = value;
     }
 
     private void LateUpdate()
     {
         if (cameraTarget == null || footstepSystem == null || playerMovement == null) return;
 
-        // 1. KUNCI PERBAIKAN: Kembalikan posisi kamera ke state "bersih" dari CrouchSystem.
-        // Kita kurangi posisi kamera dengan guncangan frame sebelumnya.
-        cameraTarget.localPosition -= _currentBobOffset;
+        // FIX MANTUL — Step 1: kembalikan posisi ke base Y dari CrouchSystem,
+        // bukan dari localPosition yang mungkin sudah termodifikasi bob frame sebelumnya.
+        // Ini mencegah double-write: CrouchSystem set Y, HeadBob subtract offset lama
+        // dari Y yang sudah bergeser → posisi drift tiap frame → mantul-mantul.
+        float baseY = crouchSystem != null ? crouchSystem.CameraTargetY : cameraTarget.localPosition.y;
 
-        // 2. Tentukan target intensitas guncangan berdasarkan state Locomotion
+        Vector3 cleanPos = cameraTarget.localPosition;
+        cleanPos.y = baseY;
+        // Hapus bob offset lama dari X (Y sudah di-replace dengan baseY)
+        cleanPos.x -= _currentBobOffset.x;
+        cleanPos.z -= _currentBobOffset.z;
+        cameraTarget.localPosition = cleanPos;
+
+        // FIX #7 — Early return saat player diam dan amplitude sudah mendekati 0
+        if (!playerMovement.IsMoving && _currentAmpX < 0.0001f && _currentAmpY < 0.0001f)
+        {
+            _currentBobOffset = Vector3.zero;
+            return;
+        }
+
+        // Step 2: tentukan target amplitudo berdasarkan locomotion state
         float targetAmpX = 0f;
         float targetAmpY = 0f;
 
@@ -63,18 +92,16 @@ public sealed class HeadbobSystem : MonoBehaviour
                     targetAmpX = crouchBobX;
                     targetAmpY = crouchBobY;
                     break;
-                default: // Walk
+                default:
                     targetAmpX = walkBobX;
                     targetAmpY = walkBobY;
                     break;
             }
         }
 
-        // Lerp intensitas agar mulus saat mulai jalan / berhenti tiba-tiba
         _currentAmpX = Mathf.Lerp(_currentAmpX, targetAmpX, Time.deltaTime * returnSpeed);
         _currentAmpY = Mathf.Lerp(_currentAmpY, targetAmpY, Time.deltaTime * returnSpeed);
 
-        // Ambil data mentah langsung dari FootstepSystem
         float finalX     = 0f;
         float finalY     = 0f;
         float finalPitch = 0f;
@@ -83,30 +110,26 @@ public sealed class HeadbobSystem : MonoBehaviour
         float interval = footstepSystem.CurrentInterval;
         if (interval > 0.01f)
         {
-            // Rasio progres dari 0.0 (Kaki diangkat) ke 1.0 (Kaki menapak)
             float stepProgress = footstepSystem.DistanceTravelled / interval;
 
-            // Sumbu Y (Bounce Atas-Bawah)
             float bouncePhase = stepProgress * 2f * Mathf.PI;
             float bounceY     = -Mathf.Cos(bouncePhase);
             finalY            = bounceY * _currentAmpY;
 
-            // Sumbu X (Sway Kanan-Kiri)
-            float swayX = Mathf.Sin(stepProgress * Mathf.PI);
+            float swayX  = Mathf.Sin(stepProgress * Mathf.PI);
             float swayDir = footstepSystem.IsLeftFoot ? -1f : 1f;
             finalX        = swayX * swayDir * _currentAmpX;
 
-            // Rotasi Lensa (Tilt)
             float intensity = _currentAmpY / Mathf.Max(walkBobY, 0.001f);
             finalPitch = -bounceY * pitchMultiplier * intensity;
             finalRoll  = (swayX * swayDir) * rollMultiplier * intensity;
         }
 
-        // 3. TERAPKAN Headbob baru sebagai offset tambahan (Additive) di atas posisi bersih
+        // Step 3: terapkan bob offset baru di atas base position
         _currentBobOffset = new Vector3(finalX, finalY, 0f);
         cameraTarget.localPosition += _currentBobOffset;
 
-        // 4. Terapkan Rotasi secara Additive
+        // Step 4: terapkan rotasi additive
         cameraTarget.localRotation *= Quaternion.Euler(finalPitch, 0f, finalRoll);
     }
 }
