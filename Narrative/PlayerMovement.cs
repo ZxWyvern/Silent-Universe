@@ -82,6 +82,10 @@ public sealed class PlayerMovement : MonoBehaviour
     private bool                _moveLocked;
     private bool                _lookLocked;
 
+    // ── NPC Look-At ──────────────────────────────────────────────
+    private Transform           _lookAtTarget;          // world target to look at (e.g. NPC head)
+    private float               _lookAtSmoothing = 5f; // degrees/sec lerp speed
+
     // ═══════════════════════════════════════════════════════════════
     //  Public Read-Only Properties
     // ═══════════════════════════════════════════════════════════════
@@ -119,7 +123,7 @@ public sealed class PlayerMovement : MonoBehaviour
     // ═══════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Lock/unlock semua input. Digunakan cutscene, dialogue, UI, dsb.
+    /// Lock/unlock semua input (move + look). Digunakan pause, cutscene, dll.
     /// </summary>
     public void SetInputEnabled(bool enabled)
     {
@@ -132,6 +136,27 @@ public sealed class PlayerMovement : MonoBehaviour
             _inputMove = Vector2.zero;
             _inputLook = Vector2.zero;
         }
+    }
+
+    /// <summary>
+    /// Lock/unlock HANYA look (mouse). Move tidak terpengaruh.
+    /// </summary>
+    public void SetLookEnabled(bool enabled)
+    {
+        _lookLocked = !enabled;
+        if (!enabled) _inputLook = Vector2.zero;
+    }
+
+    /// <summary>
+    /// Set world-space Transform yang akan di-look-at kamera secara smooth.
+    /// Pass null untuk melepas target dan mengembalikan kontrol ke player.
+    /// </summary>
+    /// <param name="target">Transform target (misal: NPC head bone)</param>
+    /// <param name="smoothing">Kecepatan smooth (default 5). Lebih tinggi = lebih cepat.</param>
+    public void SetLookTarget(Transform target, float smoothing = 5f)
+    {
+        _lookAtTarget    = target;
+        _lookAtSmoothing = smoothing;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -152,6 +177,35 @@ public sealed class PlayerMovement : MonoBehaviour
         LockCursor();
 
         ResolveActions();
+
+        // Daftarkan getter camera pitch ke GameSave agar bisa di-save tanpa circular dep.
+        GameSave.RegisterCameraPitchGetter(() => _cameraPitch);
+    }
+
+    private void Start()
+    {
+        // Reset input lock — static field tidak auto-clear saat scene berganti.
+        // Kalau player exit via pause menu (IsInputLocked=true) tanpa Resume dulu,
+        // scene baru akan tetap locked sampai ini di-reset.
+        GameState.IsInputLocked = false;
+
+        // Load rotasi player dan kamera dari save (jika ada).
+        // Dipanggil di Start() bukan Awake() agar SaveFile.Data sudah ter-populate
+        // oleh SaveFileAutoFlush.OnSceneLoaded (yang subscribe sceneLoaded sebelum ini).
+        if (GameSave.HasSave())
+        {
+            // Terapkan yaw ke body player
+            Vector3 euler = transform.eulerAngles;
+            euler.y = GameSave.GetSavedYaw();
+            transform.eulerAngles = euler;
+
+            // Terapkan pitch ke camera
+            _cameraPitch = GameSave.GetSavedPitch();
+            if (cameraTarget != null)
+                cameraTarget.localRotation = Quaternion.Euler(_cameraPitch, 0f, 0f);
+
+            Debug.Log($"[PlayerMovement] Rotasi di-restore — Yaw: {euler.y:F1}° | Pitch: {_cameraPitch:F1}°");
+        }
     }
 
     public void LockCursor()
@@ -180,8 +234,7 @@ public sealed class PlayerMovement : MonoBehaviour
             TickMovement();
         }
 
-        if (!_lookLocked)
-            TickLook();
+        TickLook();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -213,8 +266,8 @@ public sealed class PlayerMovement : MonoBehaviour
     // Move & Look dibaca polling — lebih reliable untuk Vector2 axis dan Mouse Delta
     private void ReadAxesThisFrame()
     {
-        _inputMove = _actionMove?.ReadValue<Vector2>() ?? Vector2.zero;
-        _inputLook = _actionLook?.ReadValue<Vector2>() ?? Vector2.zero;
+        _inputMove = _moveLocked ? Vector2.zero : (_actionMove?.ReadValue<Vector2>() ?? Vector2.zero);
+        _inputLook = _lookLocked ? Vector2.zero : (_actionLook?.ReadValue<Vector2>() ?? Vector2.zero);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -254,7 +307,37 @@ public sealed class PlayerMovement : MonoBehaviour
 
 private void TickLook()
     {
-        // 1. Kalkulasi input mouse HANYA jika ada pergerakan
+        // ── Mode 1: Look-At NPC target ────────────────────────────
+        if (_lookAtTarget != null && cameraTarget != null)
+        {
+            // Gunakan body position (stabil) bukan cameraTarget.position
+            // cameraTarget bisa drift karena headbob / gravity tick
+            Vector3 fromPos  = transform.position + Vector3.up * 1.6f; // estimasi eye level
+            Vector3 toTarget = (_lookAtTarget.position - fromPos).normalized;
+
+            // Yaw: putar body player (horizontal)
+            Vector3 toTargetFlat = new Vector3(toTarget.x, 0f, toTarget.z).normalized;
+            if (toTargetFlat.sqrMagnitude > 0.001f)
+            {
+                Quaternion targetBodyRot = Quaternion.LookRotation(toTargetFlat, Vector3.up);
+                transform.rotation = Quaternion.Slerp(
+                    transform.rotation,
+                    targetBodyRot,
+                    _lookAtSmoothing * Time.deltaTime
+                );
+            }
+
+            // Pitch: putar kamera (vertikal)
+            float targetPitch = -Mathf.Asin(Mathf.Clamp(toTarget.y, -1f, 1f)) * Mathf.Rad2Deg;
+            targetPitch       = Mathf.Clamp(targetPitch, -maxPitchUp, maxPitchDown);
+            _cameraPitch      = Mathf.Lerp(_cameraPitch, targetPitch, _lookAtSmoothing * Time.deltaTime);
+            cameraTarget.localRotation = Quaternion.Euler(_cameraPitch, 0f, 0f);
+            return;
+        }
+
+        // ── Mode 2: Normal mouse look ─────────────────────────────
+        if (_lookLocked) return;
+
         if (_inputLook != Vector2.zero)
         {
             transform.Rotate(Vector3.up, _inputLook.x * mouseSensitivity);
@@ -262,10 +345,8 @@ private void TickLook()
             _cameraPitch  = Mathf.Clamp(_cameraPitch, -maxPitchUp, maxPitchDown);
         }
 
-        // 2. WAJIB ditaruh di luar 'if' agar selalu tereksekusi setiap frame!
-        // Ini memberikan "pondasi" rotasi yang stabil untuk ditumpangi oleh HeadbobSystem.
+        // WAJIB di luar 'if' — pondasi rotasi stabil untuk HeadbobSystem
         if (cameraTarget != null)
             cameraTarget.localRotation = Quaternion.Euler(_cameraPitch, 0f, 0f);
     }
-
 }

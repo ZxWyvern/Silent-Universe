@@ -39,8 +39,9 @@ public class DialogueManager : MonoBehaviour
 
     // ── Public API ──
 
-    /// Mulai dialogue dengan data tertentu
-    public void StartDialogue(DialogueData data)
+    /// Mulai dialogue dengan data tertentu.
+    /// <param name="npcHead">Opsional — Transform kepala NPC. Kamera player akan smooth-look ke sini selama dialogue.</param>
+    public void StartDialogue(DialogueData data, Transform npcHead = null)
     {
         if (_isActive) { Debug.LogWarning("[DialogueManager] Dialogue sudah aktif."); return; }
         if (data == null) { Debug.LogError("[DialogueManager] DialogueData null! Assign asset ke NPCInteractable."); return; }
@@ -65,9 +66,15 @@ public class DialogueManager : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible   = true;
 
-        // freeze player input
+        // freeze movement + arahkan kamera ke kepala NPC
         var player = FindFirstObjectByType<PlayerMovement>();
-        if (player != null) player.SetInputEnabled(false);
+        if (player != null)
+        {
+            player.SetInputEnabled(false);  // lock move + look input
+
+            if (npcHead != null)
+                player.SetLookTarget(npcHead, 6f);   // smooth look ke NPC head
+        }
 
         onDialogueStart.Invoke(data.npcName, data.nodes[0].npcText);
         ShowNode("start");
@@ -114,9 +121,13 @@ public class DialogueManager : MonoBehaviour
             Cursor.visible   = false;
         }
 
-        // unfreeze player input
+        // unfreeze player input + lepas look-at target
         var player = FindFirstObjectByType<PlayerMovement>();
-        if (player != null) player.SetInputEnabled(true);
+        if (player != null)
+        {
+            player.SetLookTarget(null);  // kembalikan kontrol kamera ke mouse
+            player.SetInputEnabled(true);
+        }
 
         onDialogueEnd.Invoke();
     }

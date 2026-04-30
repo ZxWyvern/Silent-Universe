@@ -186,6 +186,8 @@ public class SaveData
     public float  playerX       = 0f;
     public float  playerY       = 0f;
     public float  playerZ       = 0f;
+    public float  playerYaw     = 0f;   // rotasi horizontal body (transform.eulerAngles.y)
+    public float  playerPitch   = 0f;   // rotasi vertikal kamera (_cameraPitch)
     public string inventoryKeys = "";
     public string diskInventory = "";
 

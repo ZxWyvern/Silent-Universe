@@ -79,9 +79,11 @@ public class PauseHandler : MonoBehaviour
 
     private void OnPausePerformed(InputAction.CallbackContext ctx)
     {
-        // FIX #1 — Jangan pause saat player di dalam CCTV mode.
-        // MonitorInteractable mengurus cursor dan state-nya sendiri.
+        // Jangan pause saat player di dalam CCTV mode
         if (GameState.IsCCTVActive) return;
+
+        // Jangan pause saat dialogue NPC aktif — ESC tidak melakukan apa-apa
+        if (DialogueManager.Instance != null && DialogueManager.Instance.IsActive) return;
 
         bool settingsOpen = settingsPanel != null && settingsPanel.activeSelf;
         bool pauseOpen    = pausePanel    != null && pausePanel.activeSelf;

@@ -4,6 +4,10 @@ using UnityEngine.SceneManagement;
 public class SaveFileAutoFlush : MonoBehaviour
 {
     private static SaveFileAutoFlush _instance;
+    private static bool _preloaded; // true = SaveFile.Read() sudah dipanggil sebelum LoadScene
+
+    /// Dipanggil oleh GameSave.Load() sebelum LoadScene agar OnSceneLoaded skip Read().
+    public static void MarkPreloaded() => _preloaded = true;
 
     private void Awake()
     {
@@ -27,10 +31,15 @@ public class SaveFileAutoFlush : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        // FIX — Skip re-read saat Additive load (scene rhythm, UI, dll.).
-        // Additive load tidak mengganti scene utama, jadi tidak perlu re-read.
-        // Re-read saat Additive bisa overwrite data in-memory yang belum di-write.
         if (mode == LoadSceneMode.Additive) return;
+
+        if (_preloaded)
+        {
+            // Data sudah di-read sebelum LoadScene — skip disk I/O di frame ini.
+            _preloaded = false;
+            Debug.Log($"[SaveFileAutoFlush] Preloaded — skip Read() untuk scene: {scene.name}");
+            return;
+        }
 
         SaveFile.Read();
         Debug.Log($"[SaveFileAutoFlush] SaveFile di-reload untuk scene: {scene.name}");

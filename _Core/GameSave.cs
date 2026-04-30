@@ -27,6 +27,15 @@ public static class GameSave
     // sehingga Core tidak perlu tahu tipe PlayerInventory / PlayerDiskInventory sama sekali.
     private static Action _persistCallbacks;
 
+    // Getter camera pitch — didaftarkan oleh PlayerMovement agar Core tidak import Narrative.
+    // PlayerMovement.Awake() → GameSave.RegisterCameraPitchGetter(() => _cameraPitch)
+    private static Func<float> _cameraPitchGetter;
+
+    public static void RegisterCameraPitchGetter(Func<float> getter)
+    {
+        _cameraPitchGetter = getter;
+    }
+
     /// Dipanggil oleh PlayerInventory.Awake() untuk mendaftarkan dirinya.
     /// Dengan ini, GameSave tidak perlu FindWithTag sama sekali.
     public static void RegisterPlayer(GameObject player)
@@ -67,7 +76,13 @@ public static class GameSave
         Vector3 pos = player.transform.position;
 
         // Cegah death loop: jangan save posisi saat player sedang di udara.
-        bool groundFound = Physics.Raycast(pos + Vector3.up * 0.1f, Vector3.down, 3f);
+        // QueryTriggerInteraction.Ignore agar trigger collider tidak dihitung sebagai tanah.
+        bool groundFound = Physics.Raycast(
+            pos + Vector3.up * 0.5f,
+            Vector3.down,
+            5f,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Ignore);
         if (!groundFound)
         {
             Debug.LogWarning("[GameSave] Save diabaikan — player tidak menyentuh tanah (cegah death loop).");
@@ -80,6 +95,8 @@ public static class GameSave
         d.playerX      = pos.x;
         d.playerY      = pos.y;
         d.playerZ      = pos.z;
+        d.playerYaw    = player.transform.eulerAngles.y;
+        d.playerPitch  = _cameraPitchGetter != null ? _cameraPitchGetter() : 0f;
         d.currentNoise = GameState.SavedNoise;
 
         // BUG FIX ASMDEF — Flush semua inventory ke SaveFile.Data via delegate.
@@ -103,8 +120,15 @@ public static class GameSave
         if (!HasSave()) { Debug.LogWarning("[GameSave] Tidak ada save data."); return; }
         string sceneName = SaveFile.Data.sceneName;
         if (string.IsNullOrEmpty(sceneName)) { Debug.LogWarning("[GameSave] Scene name kosong."); return; }
+
+        // OPSI C — Preload: baca ulang dari disk sekarang (main menu frame),
+        // bukan nanti saat OnSceneLoaded. Data sudah siap di memory saat
+        // sistem-sistem Start() berjalan di scene baru.
+        SaveFile.Read();
+        SaveFileAutoFlush.MarkPreloaded();
+
         Debug.Log($"[GameSave] Loading scene: {sceneName}");
-        SceneManager.LoadScene(sceneName);
+        ScreenFader.FadeOutThenLoad(sceneName);
     }
 
     public static void ResetCheckpoint()
@@ -115,6 +139,8 @@ public static class GameSave
         d.playerX   = 0f;
         d.playerY   = 0f;
         d.playerZ   = 0f;
+        d.playerYaw   = 0f;
+        d.playerPitch = 0f;
         SaveFile.ForceWrite();
         Debug.Log("[GameSave] Checkpoint direset — progres quest dan inventory tetap tersimpan.");
     }
@@ -124,6 +150,9 @@ public static class GameSave
         var d = SaveFile.Data;
         return new Vector3(d.playerX, d.playerY, d.playerZ);
     }
+
+    public static float GetSavedYaw()   => SaveFile.Data.playerYaw;
+    public static float GetSavedPitch() => SaveFile.Data.playerPitch;
 
     public static List<string> GetSavedKeyNames()
     {

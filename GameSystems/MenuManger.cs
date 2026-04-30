@@ -82,9 +82,11 @@ public class MenuManger : MonoBehaviour
     /// Hubungkan ke tombol "Exit to Menu" di Pause Panel
     public void ExitToMenu()
     {
+        GameSave.Save();
+
         Time.timeScale   = 1f;
         Cursor.visible   = true;
         Cursor.lockState = CursorLockMode.None;
-        SceneManager.LoadScene(SceneToLoad);
+        ScreenFader.FadeOutThenLoad(SceneToLoad);
     }
 }

@@ -18,7 +18,7 @@ using VContainer;
 ///   - Overheat threshold — tahan terlalu lama → overheat → cooldown
 ///   - Battery habis → isi ulang dengan R, ada progress bar
 /// </summary>
-public class FlashlightController : MonoBehaviour
+public class FlashlightController : MonoBehaviour, IPersistable
 {
     public static FlashlightController Instance { get; private set; }
 
@@ -107,7 +107,7 @@ public class FlashlightController : MonoBehaviour
     private Coroutine _cooldownRoutine;
     private Coroutine _rechargeRoutine;
     private bool      _fHeld;
-
+    private int       _inputIgnoreFrames; // skip input N frame pertama setelah scene load
     // ── Spam Detection ──
     private int       _spamPressCount;
     private float     _spamWindowTimer;
@@ -159,6 +159,15 @@ public class FlashlightController : MonoBehaviour
         // Untuk sekarang, PersistFlashlight() tetap dipakai via GameSave callback
         // sampai GameSaveService sepenuhnya replace GameSave.Save() di Fase 4 akhir.
         GameSave.RegisterPersistCallback(PersistFlashlight);
+
+        // FIX: Cancel hold state saat input dikunci (pause, dialog, scene transition).
+        // Tanpa ini, _fHeld stuck true jika player release F saat IsInputLocked = true,
+        // karena Update() skip wasReleasedThisFrame check saat locked.
+        GameState.OnInputLockChanged += OnInputLockChanged;
+
+        _inputIgnoreFrames = 2;
+
+        UnityEngine.SceneManagement.SceneManager.sceneUnloaded += OnSceneUnloaded;
     }
 
     private void Start()
@@ -184,6 +193,8 @@ public class FlashlightController : MonoBehaviour
 
     private void OnDestroy()
     {
+        GameState.OnInputLockChanged -= OnInputLockChanged;
+        UnityEngine.SceneManagement.SceneManager.sceneUnloaded -= OnSceneUnloaded;
         GameSave.UnregisterPersistCallback(PersistFlashlight);
 
         var equip = _equipment ?? PlayerEquipment.Instance;
@@ -200,9 +211,16 @@ public class FlashlightController : MonoBehaviour
 
         if (UnityEngine.InputSystem.Keyboard.current != null && !GameState.IsInputLocked)
         {
-            var key = UnityEngine.InputSystem.Keyboard.current.fKey;
-            if (key.wasPressedThisFrame)  OnToggleFlashlightStarted();
-            if (key.wasReleasedThisFrame) OnToggleFlashlightCanceled();
+            if (_inputIgnoreFrames > 0)
+            {
+                _inputIgnoreFrames--;
+            }
+            else
+            {
+                var key = UnityEngine.InputSystem.Keyboard.current.fKey;
+                if (key.wasPressedThisFrame)  OnToggleFlashlightStarted();
+                if (key.wasReleasedThisFrame) OnToggleFlashlightCanceled();
+            }
         }
 
         if (_spamPressCount > 0)
@@ -262,6 +280,9 @@ public class FlashlightController : MonoBehaviour
 
     public void OnToggleFlashlight(InputValue value)
     {
+        // Guard: cegah fire saat input locked (pause, dialog, cutscene).
+        if (GameState.IsInputLocked) return;
+
         if (value.isPressed) OnToggleFlashlightStarted();
         else                 OnToggleFlashlightCanceled();
     }
@@ -487,9 +508,41 @@ public class FlashlightController : MonoBehaviour
         _flickerRoutine = null;
     }
 
+    // ── IPersistable ──────────────────────────────────────────────────────────
+
+    /// Dipanggil oleh GameSaveService saat Save(). Alias untuk PersistFlashlight.
+    public void Persist() => PersistFlashlight();
+
     // ──────────────────────────────────────────
     // Save / Load
     // ──────────────────────────────────────────
+
+    private void OnInputLockChanged(bool isLocked)
+    {
+        // Saat input dikunci (pause, dialog, cutscene), force cancel hold state.
+        // Ini mencegah _fHeld stuck true jika player release F saat locked,
+        // karena Update() tidak membaca wasReleasedThisFrame saat IsInputLocked = true.
+        if (isLocked && _fHeld)
+        {
+            _fHeld    = false;
+            _holdTime = 0f;
+            onOverheatProgress.Invoke(0f);
+            StopOverheatWarning();
+            TurnOff();
+        }
+    }
+
+    private void OnSceneUnloaded(UnityEngine.SceneManagement.Scene scene)
+    {
+        // FIX: Flush battery ke disk setiap kali scene di-unload.
+        // Ini menangkap kasus: player pindah scene / quit tanpa melewati checkpoint.
+        // ForceWrite() aman dipanggil di sini karena masih di main thread.
+        if (_hasFlashlight)
+        {
+            PersistFlashlight();
+            SaveFile.ForceWrite();
+        }
+    }
 
     public void PersistFlashlight()
     {

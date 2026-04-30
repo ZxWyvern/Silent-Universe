@@ -6,6 +6,8 @@ public class NPCInteractable : MonoBehaviour, IInteractable
 {
     [Header("Dialogue")]
     [SerializeField] private DialogueData dialogueData;
+    [Tooltip("Transform kepala NPC (misal: Head bone). Kamera player akan otomatis menghadap ke sini selama dialogue.")]
+    [SerializeField] private Transform npcHeadTransform;
 
     [Header("Interact Settings")]
     [SerializeField] private string promptText  = "Tahan [E] untuk bicara";
@@ -98,7 +100,7 @@ public class NPCInteractable : MonoBehaviour, IInteractable
         }
 
         onInteractBegin.Invoke();
-        DialogueManager.Instance.StartDialogue(dialogueData);
+        DialogueManager.Instance.StartDialogue(dialogueData, npcHeadTransform);
     }
 
     private void OnDMChoiceSelected(int index, string nextNodeID)

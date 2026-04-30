@@ -32,7 +32,7 @@ public class MainMenuHandler : MonoBehaviour
         Time.timeScale = 1f;
 
         Debug.Log("[MainMenu] New Game — semua state direset.");
-        SceneManager.LoadScene(firstSceneName);
+        ScreenFader.FadeOutThenLoad(firstSceneName);
     }
 
     /// Hubungkan ke tombol "Continue" di Inspector.

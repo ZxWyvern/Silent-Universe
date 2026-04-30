@@ -108,9 +108,7 @@ public class SceneLifetimeScope : LifetimeScope
         // VContainer kumpulkan semua registrasi IReadOnlyList<IPersistable>
         // yang di-inject ke GameSaveService.
         //
-        // CATATAN: FlashlightController tidak implement IPersistable —
-        // ia masih pakai GameSave.RegisterPersistCallback() sebagai shim.
-        // Tambahkan FlashlightController ke sini setelah IPersistable di-implement.
+        // CATATAN: FlashlightController sekarang implement IPersistable — didaftarkan di bawah.
         if (playerInventory != null)
             builder.RegisterComponent<IPersistable>(playerInventory);
 
@@ -125,5 +123,8 @@ public class SceneLifetimeScope : LifetimeScope
 
         if (playerFuseInventory != null)
             builder.RegisterComponent<IPersistable>(playerFuseInventory);
+
+        if (flashlightController != null)
+            builder.RegisterComponent<IPersistable>(flashlightController);
     }
 }

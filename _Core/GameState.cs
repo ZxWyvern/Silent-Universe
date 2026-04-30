@@ -1,3 +1,5 @@
+using System;
+
 /// <summary>
 /// GameState — shared runtime flags yang bisa diakses oleh semua assembly.
 /// Karena Core tidak punya dependency ke assembly lain, class ini aman
@@ -10,9 +12,24 @@
 /// </summary>
 public static class GameState
 {
-    /// True saat input player dikunci (dialog, cutscene, dll.)
+    /// Dipanggil setiap kali IsInputLocked berubah nilai.
+    /// Subscriber: FlashlightController (untuk cancel hold state saat input dikunci).
+    public static event Action<bool> OnInputLockChanged;
+
+    private static bool _isInputLocked;
+
+    /// True saat input player dikunci (dialog, cutscene, pause, dll.)
     /// Diset oleh PlayerMovement.SetInputEnabled().
-    public static bool IsInputLocked { get; set; }
+    public static bool IsInputLocked
+    {
+        get => _isInputLocked;
+        set
+        {
+            if (_isInputLocked == value) return;
+            _isInputLocked = value;
+            OnInputLockChanged?.Invoke(value);
+        }
+    }
 
     /// True saat player sedang dalam mode CCTV monitor.
     /// Diset oleh MonitorInteractable saat enter/exit CCTV.

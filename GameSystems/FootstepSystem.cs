@@ -174,7 +174,8 @@ public class FootstepSystem : MonoBehaviour
         if (footstepSource != null)
         {
             footstepSource.pitch = pitch;
-            footstepSource.PlayOneShot(clip, volume);
+            //footstepSource.PlayOneShot(clip, volume);
+            footstepSource.PlayOneShot(clip, 1.0f);
         }
 
         float noise = profile.noisePerStep;
